@@ -29,6 +29,12 @@
     .good { background: #e3f1e4; color: #2e6b34; }
     #msg { min-height: 20px; margin: 8px 0; font-size: 14px; }
     .ok { color: #2e6b34; } .err { color: #b00020; }
+    @media print {
+  body * { visibility: hidden; }
+  #qrBox, #qrBox * { visibility: visible; }
+  #qrBox { position: absolute; left: 0; top: 0; background: #fff; }
+  #qrBox button { display: none; }
+}
   </style>
 </head>
 <body>
@@ -75,6 +81,19 @@
       </table>
     </div>
   </main>
+    </main>
+
+<div id="qrBox" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);align-items:center;justify-content:center;">
+  <div style="background:#fff;padding:20px;border-radius:10px;text-align:center;max-width:340px">
+    <h3 id="qrTitle"></h3>
+    <img id="qrImg" width="260" height="260" alt="QR code">
+    <p id="qrUrl" style="font-size:12px;word-break:break-all;color:#555"></p>
+    <button onclick="window.print()">Print label</button>
+    <button class="grey" onclick="closeQr()">Close</button>
+  </div>
+</div>
+
+  
   <script>
     const token = localStorage.getItem('token');
     const user = JSON.parse(localStorage.getItem('user') || 'null');
@@ -85,7 +104,7 @@
     const $ = (id) => document.getElementById(id);
     const show = (t, ok) => { $('msg').textContent = t; $('msg').className = ok ? 'ok' : 'err'; };
     const LABELS = { expired: 'Expired', near_expiry: 'Near expiry', low_stock: 'Low stock' };
-
+    
     async function api(url, options = {}) {
       const res = await fetch(url, { ...options,
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token } });
@@ -109,27 +128,47 @@
       try { list = await api('/api/batches?' + q); render(); } catch (e) { show(e.message, false); }
     }
     function render() {
-      const body = $('rows'); body.innerHTML = '';
-      if (!list.length) { const td = body.insertRow().insertCell(); td.colSpan = 10; td.textContent = 'No batches found'; return; }
-      list.forEach(b => {
-        const tr = body.insertRow();
-        [b.product_name, b.batch_no, b.supplier_name, b.mfg_date || '-', b.expiry_date,
-         b.days_to_expiry, b.quantity + ' ' + b.unit, b.selling_price ?? '-']
-          .forEach(v => { tr.insertCell().textContent = v; });
-        const st = tr.insertCell();
-        if (!b.flags.length) { const s = document.createElement('span'); s.className = 'tag good'; s.textContent = 'OK'; st.append(s); }
-        b.flags.forEach(f => { const s = document.createElement('span'); s.className = 'tag ' + f; s.textContent = LABELS[f]; st.append(s); });
-        const a = tr.insertCell();
-        if (canEdit) {
-          const e = document.createElement('button'); e.textContent = 'Edit'; e.onclick = () => startEdit(b);
-          a.append(e);
-          if (isOwner) {
-            const d = document.createElement('button'); d.textContent = 'Delete'; d.className = 'red';
-            d.style.marginLeft = '6px'; d.onclick = () => remove(b); a.append(d);
-          }
-        }
-      });
+  const body = $('rows'); body.innerHTML = '';
+  if (!list.length) { const td = body.insertRow().insertCell(); td.colSpan = 10; td.textContent = 'No batches found'; return; }
+  list.forEach(b => {
+    const tr = body.insertRow();
+    [b.product_name, b.batch_no, b.supplier_name, b.mfg_date || '-', b.expiry_date,
+     b.days_to_expiry, b.quantity + ' ' + b.unit, b.selling_price ?? '-']
+      .forEach(v => { tr.insertCell().textContent = v; });
+    const st = tr.insertCell();
+    if (!b.flags.length) { const s = document.createElement('span'); s.className = 'tag good'; s.textContent = 'OK'; st.append(s); }
+    b.flags.forEach(f => { const s = document.createElement('span'); s.className = 'tag ' + f; s.textContent = LABELS[f]; st.append(s); });
+    const a = tr.insertCell();
+    const q = document.createElement('button');
+    q.textContent = 'QR'; q.className = 'grey'; q.onclick = () => showQr(b);
+    a.append(q);
+    if (canEdit) {
+      const e = document.createElement('button');
+      e.textContent = 'Edit'; e.style.marginLeft = '6px'; e.onclick = () => startEdit(b);
+      a.append(e);
+      if (isOwner) {
+        const d = document.createElement('button');
+        d.textContent = 'Delete'; d.className = 'red'; d.style.marginLeft = '6px';
+        d.onclick = () => remove(b); a.append(d);
+      }
     }
+  });
+}
+
+async function showQr(b) {
+  try {
+    const r = await api('/api/batches/' + b.batch_id + '/qr');
+    if (!r.dataUrl) throw new Error('The server did not return a QR image');
+    $('qrTitle').textContent = r.product_name + ' - Batch ' + r.batch_no;
+    $('qrImg').onerror = () => show('The QR image could not be displayed', false);
+    $('qrImg').src = r.dataUrl;
+    $('qrUrl').textContent = r.url;
+    $('qrBox').style.display = 'flex';
+  } catch (e) {
+    show('QR error: ' + e.message, false);
+  }
+}
+function closeQr() { $('qrBox').style.display = 'none'; }
     function startEdit(b) {
       editingId = b.batch_id; $('formTitle').textContent = 'Edit batch';
       ['product_id','supplier_id','batch_no','quantity','mfg_date','expiry_date','purchase_price','selling_price']
@@ -161,6 +200,7 @@
     if (canEdit) { $('formBox').style.display = 'block'; loadDropdowns().catch(e => show(e.message, false)); }
     else document.querySelectorAll('.canEdit').forEach(el => el.style.display = 'none');
     load();
+   
   </script>
 </body>
 </html>

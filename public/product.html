@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AgroDesk - Product details</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; background: #f1f5ee; }
+    header { background: #2e6b34; color: #fff; padding: 14px 24px; }
+    main { padding: 20px; max-width: 800px; margin: auto; }
+    .box { background: #fff; padding: 18px; border-radius: 10px; margin-bottom: 20px;
+           box-shadow: 0 1px 6px rgba(0,0,0,.08); }
+    h2, h3 { margin-top: 0; }
+    dl { display: grid; grid-template-columns: 150px 1fr; gap: 8px 12px; margin: 0; }
+    dt { color: #666; } dd { margin: 0; font-weight: bold; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 8px; border-bottom: 1px solid #e2e2e2; font-size: 14px; }
+    th { background: #e3f1e4; }
+    .tag { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin-right: 4px; }
+    .expired, .recalled { background: #fde0e0; color: #8a1010; }
+    .near_expiry { background: #fff0cc; color: #7a5200; }
+    .ok { background: #e3f1e4; color: #2e6b34; }
+    #err { color: #b00020; }
+    .note { font-size: 13px; color: #666; }
+  </style>
+</head>
+<body>
+  <header><strong>AgroDesk - Product details</strong></header>
+  <main>
+    <div id="err"></div>
+    <div class="box" id="info" style="display:none">
+      <h2 id="title"></h2>
+      <dl id="fields"></dl>
+    </div>
+    <div class="box" id="batchBox" style="display:none">
+      <h3>Batches of this product</h3>
+      <table>
+        <thead><tr><th>Batch</th><th>Manufactured</th><th>Expiry</th><th>Days left</th><th>Status</th><th id="qtyHead" style="display:none">Stock</th></tr></thead>
+        <tbody id="batches"></tbody>
+      </table>
+      <p class="note" id="loginNote"></p>
+    </div>
+  </main>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const id = new URLSearchParams(location.search).get('id');
+    const token = localStorage.getItem('token');
+    const LABEL = { ok: 'OK', near_expiry: 'Near expiry', expired: 'Expired' };
+
+    function addRow(k, v) {
+      const dt = document.createElement('dt'); dt.textContent = k;
+      const dd = document.createElement('dd'); dd.textContent = v;
+      $('fields').append(dt, dd);
+    }
+    function tag(cls, text) {
+      const s = document.createElement('span'); s.className = 'tag ' + cls; s.textContent = text; return s;
+    }
+
+    async function init() {
+      const res = await fetch('/api/public/product/' + encodeURIComponent(id));
+      const p = await res.json();
+      if (!res.ok) { $('err').textContent = p.message; return; }
+
+      $('title').textContent = p.name;
+      addRow('Category', p.category);
+      addRow('Manufacturer', p.manufacturer || '-');
+      addRow('Unit', p.unit);
+      addRow('HSN code', p.hsn_code || '-');
+      if (p.category === 'pesticide') addRow('Waiting period', p.waiting_period_days != null ? p.waiting_period_days + ' days' : '-');
+      $('info').style.display = 'block';
+
+      let qty = {};
+      if (token) {
+        const r = await fetch('/api/batches', { headers: { Authorization: 'Bearer ' + token } });
+        if (r.ok) {
+          (await r.json()).forEach(b => { qty[b.batch_id] = b.quantity + ' ' + b.unit; });
+          $('qtyHead').style.display = '';
+        }
+      } else {
+        $('loginNote').innerHTML = 'Shop staff: <a href="/login.html?next=' +
+          encodeURIComponent(location.pathname + location.search) + '">log in</a> to see stock.';
+      }
+
+      const body = $('batches');
+      if (!p.batches.length) { const td = body.insertRow().insertCell(); td.colSpan = 6; td.textContent = 'No batches recorded yet'; }
+      p.batches.forEach(b => {
+        const tr = body.insertRow();
+        const link = document.createElement('a');
+        link.href = '/batch.html?id=' + b.batch_id; link.textContent = b.batch_no;
+        tr.insertCell().append(link);
+        [b.mfg_date || '-', b.expiry_date, b.days_to_expiry].forEach(v => { tr.insertCell().textContent = v; });
+        const st = tr.insertCell();
+        st.append(tag(b.status, LABEL[b.status]));
+        if (b.recalled) st.append(tag('recalled', 'Recalled'));
+        if (token && Object.keys(qty).length) tr.insertCell().textContent = qty[b.batch_id] ?? '-';
+      });
+      $('batchBox').style.display = 'block';
+    }
+    init().catch(() => { $('err').textContent = 'Cannot reach the server'; });
+  </script>
+</body>
+</html>

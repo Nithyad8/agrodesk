@@ -25,6 +25,12 @@
     th { background: #e3f1e4; }
     #msg { min-height: 20px; margin: 8px 0; font-size: 14px; }
     .ok { color: #2e6b34; } .err { color: #b00020; }
+    @media print {
+  body * { visibility: hidden; }
+  #qrBox, #qrBox * { visibility: visible; }
+  #qrBox { position: absolute; left: 0; top: 0; background: #fff; }
+  #qrBox button { display: none; }
+}
   </style>
 </head>
 <body>
@@ -80,7 +86,15 @@
       </table>
     </div>
   </main>
-
+  <div id="qrBox" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);align-items:center;justify-content:center;">
+  <div style="background:#fff;padding:20px;border-radius:10px;text-align:center;max-width:340px">
+    <h3 id="qrTitle"></h3>
+    <img id="qrImg" width="260" height="260" alt="QR code">
+    <p id="qrUrl" style="font-size:12px;word-break:break-all;color:#555"></p>
+    <button onclick="window.print()">Print label</button>
+    <button class="grey" onclick="closeQr()">Close</button>
+  </div>
+</div>
   <script>
     const token = localStorage.getItem('token');
     const user = JSON.parse(localStorage.getItem('user') || 'null');
@@ -116,33 +130,45 @@
     }
 
     function render() {
-      const body = $('rows');
-      body.innerHTML = '';
-      if (!products.length) {
-        const tr = body.insertRow();
-        const td = tr.insertCell();
-        td.colSpan = 7;
-        td.textContent = 'No products found';
-        return;
-      }
-      products.forEach(p => {
-        const tr = body.insertRow();
-        [p.name, p.category, p.unit, p.manufacturer || '-', p.tax_rate,
-         p.waiting_period_days ?? '-'].forEach(v => { tr.insertCell().textContent = v; });
-        const actions = tr.insertCell();
-        if (isOwner) {
-          const edit = document.createElement('button');
-          edit.textContent = 'Edit';
-          edit.onclick = () => startEdit(p);
-          const del = document.createElement('button');
-          del.textContent = 'Delete';
-          del.className = 'red';
-          del.style.marginLeft = '6px';
-          del.onclick = () => remove(p);
-          actions.append(edit, del);
-        }
-      });
+  const body = $('rows');
+  body.innerHTML = '';
+  if (!products.length) {
+    const tr = body.insertRow();
+    const td = tr.insertCell();
+    td.colSpan = 7;
+    td.textContent = 'No products found';
+    return;
+  }
+  products.forEach(p => {
+    const tr = body.insertRow();
+    [p.name, p.category, p.unit, p.manufacturer || '-', p.tax_rate,
+     p.waiting_period_days ?? '-'].forEach(v => { tr.insertCell().textContent = v; });
+    const actions = tr.insertCell();
+    const qr = document.createElement('button');
+    qr.textContent = 'QR'; qr.className = 'grey'; qr.onclick = () => showQr(p);
+    actions.append(qr);
+    if (isOwner) {
+      const edit = document.createElement('button');
+      edit.textContent = 'Edit'; edit.style.marginLeft = '6px'; edit.onclick = () => startEdit(p);
+      const del = document.createElement('button');
+      del.textContent = 'Delete'; del.className = 'red'; del.style.marginLeft = '6px';
+      del.onclick = () => remove(p);
+      actions.append(edit, del);
     }
+  });
+}
+
+async function showQr(p) {
+  try {
+    const r = await api('/api/products/' + p.product_id + '/qr');
+    if (!r.dataUrl) throw new Error('The server did not return a QR image');
+    $('qrTitle').textContent = r.product_name;
+    $('qrImg').src = r.dataUrl;
+    $('qrUrl').textContent = r.url;
+    $('qrBox').style.display = 'flex';
+  } catch (e) { show('QR error: ' + e.message, false); }
+}
+function closeQr() { $('qrBox').style.display = 'none'; }
 
     function startEdit(p) {
       editingId = p.product_id;

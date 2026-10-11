@@ -1,4 +1,5 @@
 const express = require('express');
+const QRCode = require('qrcode');
 const pool = require('../db');
 const { authenticate, authorize } = require('../middleware/auth');
 
@@ -119,5 +120,56 @@ router.delete('/:id', authorize('owner'), async (req, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 });
+function baseUrl(req) {
+  return (process.env.BASE_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+}
 
+router.get('/:id/qr', async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT b.batch_id, b.batch_no, p.name AS product_name
+       FROM batches b JOIN products p ON p.product_id = b.product_id
+       WHERE b.batch_id = ?`, [req.params.id]);
+    if (!rows[0]) return res.status(404).json({ message: 'Batch not found' });
+    const url = `${baseUrl(req)}/batch.html?id=${rows[0].batch_id}`;
+    const dataUrl = await QRCode.toDataURL(url, { width: 300, margin: 2 });
+    res.json({ url, dataUrl, product_name: rows[0].product_name, batch_no: rows[0].batch_no });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+router.get('/:id/details', async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT b.*, p.name AS product_name, p.category, p.unit, s.name AS supplier_name,
+              DATEDIFF(b.expiry_date, CURDATE()) AS days_to_expiry
+       FROM batches b
+       JOIN products p ON p.product_id = b.product_id
+       JOIN suppliers s ON s.supplier_id = b.supplier_id
+       WHERE b.batch_id = ?`, [req.params.id]);
+    const batch = rows[0];
+    if (!batch) return res.status(404).json({ message: 'Batch not found' });
+
+    const flags = [];
+    if (batch.days_to_expiry < 0) flags.push('expired');
+    else if (batch.days_to_expiry <= NEAR_DAYS) flags.push('near_expiry');
+    if (batch.quantity <= LOW_STOCK) flags.push('low_stock');
+
+    const [sales] = await pool.query(
+      `SELECT s.sale_id, s.sale_date, f.name AS farmer_name, f.village,
+              si.quantity, si.price, si.crop
+       FROM sale_items si
+       JOIN sales s ON s.sale_id = si.sale_id
+       JOIN farmers f ON f.farmer_id = s.farmer_id
+       WHERE si.batch_id = ?
+       ORDER BY s.sale_date DESC`, [req.params.id]);
+
+    res.json({ ...batch, flags, sales });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
 module.exports = router;

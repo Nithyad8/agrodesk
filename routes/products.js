@@ -1,4 +1,5 @@
 const express = require('express');
+const QRCode = require('qrcode');
 const pool = require('../db');
 const { authenticate, authorize } = require('../middleware/auth');
 
@@ -111,5 +112,17 @@ router.delete('/:id', authorize('owner'), async (req, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 });
-
+router.get('/:id/qr', async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT product_id, name FROM products WHERE product_id = ?', [req.params.id]);
+    if (!rows[0]) return res.status(404).json({ message: 'Product not found' });
+    const base = (process.env.BASE_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+    const url = `${base}/product.html?id=${rows[0].product_id}`;
+    const dataUrl = await QRCode.toDataURL(url, { width: 300, margin: 2 });
+    res.json({ url, dataUrl, product_name: rows[0].name });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
 module.exports = router;

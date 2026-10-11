@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AgroDesk - Batch details</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; background: #f1f5ee; }
+    header { background: #2e6b34; color: #fff; padding: 14px 24px; display: flex;
+             justify-content: space-between; align-items: center; }
+    header a { color: #fff; text-decoration: none; }
+    main { padding: 20px; max-width: 800px; margin: auto; }
+    .box { background: #fff; padding: 18px; border-radius: 10px; margin-bottom: 20px;
+           box-shadow: 0 1px 6px rgba(0,0,0,.08); }
+    h2, h3 { margin-top: 0; }
+    dl { display: grid; grid-template-columns: 150px 1fr; gap: 8px 12px; margin: 0; }
+    dt { color: #666; } dd { margin: 0; font-weight: bold; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 8px; border-bottom: 1px solid #e2e2e2; font-size: 14px; }
+    th { background: #e3f1e4; }
+    .tag { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin-right: 4px; }
+    .expired { background: #fde0e0; color: #8a1010; }
+    .near_expiry { background: #fff0cc; color: #7a5200; }
+    .low_stock { background: #ffe3d0; color: #8a3a00; }
+    .good { background: #e3f1e4; color: #2e6b34; }
+    #err { color: #b00020; }
+  </style>
+</head>
+<body>
+  <header><strong>AgroDesk - Batch details</strong><a href="/dashboard.html">Dashboard</a></header>
+  <main>
+    <div id="err"></div>
+    <div class="box" id="info" style="display:none">
+      <h2 id="title"></h2>
+      <dl id="fields"></dl>
+    </div>
+    <div class="box" id="salesBox" style="display:none">
+      <h3>Sold from this batch</h3>
+      <table>
+        <thead><tr><th>Date</th><th>Farmer</th><th>Village</th><th>Qty</th><th>Crop</th></tr></thead>
+        <tbody id="sales"></tbody>
+      </table>
+    </div>
+  </main>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const token = localStorage.getItem('token');
+    const id = new URLSearchParams(location.search).get('id');
+    const back = '/login.html?next=' + encodeURIComponent(location.pathname + location.search);
+    if (!token) location.href = back;
+    const LABELS = { expired: 'Expired', near_expiry: 'Near expiry', low_stock: 'Low stock' };
+
+    async function init() {
+      const res = await fetch('/api/batches/' + encodeURIComponent(id) + '/details',
+        { headers: { Authorization: 'Bearer ' + token } });
+      if (res.status === 401) { localStorage.clear(); location.href = back; return; }
+      const b = await res.json();
+      if (!res.ok) { $('err').textContent = b.message; return; }
+
+      $('title').textContent = b.product_name + ' - Batch ' + b.batch_no;
+      const rows = [
+        ['Category', b.category], ['Supplier', b.supplier_name],
+        ['Manufactured', b.mfg_date || '-'], ['Expiry date', b.expiry_date],
+        ['Days to expiry', b.days_to_expiry], ['Stock left', b.quantity + ' ' + b.unit],
+        ['Selling price', b.selling_price ?? '-']
+      ];
+      rows.forEach(([k, v]) => {
+        const dt = document.createElement('dt'); dt.textContent = k;
+        const dd = document.createElement('dd'); dd.textContent = v;
+        $('fields').append(dt, dd);
+      });
+      const dt = document.createElement('dt'); dt.textContent = 'Status';
+      const dd = document.createElement('dd');
+      if (!b.flags.length) { const s = document.createElement('span'); s.className = 'tag good'; s.textContent = 'OK'; dd.append(s); }
+      b.flags.forEach(f => { const s = document.createElement('span'); s.className = 'tag ' + f; s.textContent = LABELS[f]; dd.append(s); });
+      $('fields').append(dt, dd);
+      $('info').style.display = 'block';
+
+      const body = $('sales');
+      if (!b.sales.length) {
+        const td = body.insertRow().insertCell(); td.colSpan = 5; td.textContent = 'No sales yet from this batch';
+      }
+      b.sales.forEach(s => {
+        const tr = body.insertRow();
+        [s.sale_date, s.farmer_name, s.village || '-', s.quantity, s.crop || '-']
+          .forEach(v => { tr.insertCell().textContent = v; });
+      });
+      $('salesBox').style.display = 'block';
+    }
+    init().catch(() => { $('err').textContent = 'Cannot reach the server'; });
+  </script>
+</body>
+</html>
