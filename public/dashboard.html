@@ -21,7 +21,7 @@
 <body>
   <header>
     <strong>AgroDesk</strong>
-    <div><span id="who"></span> <button id="logout">Log out</button></div>
+    <div><button id="logout">Log out</button></div>
   </header>
   <main>
     <h2>Welcome, <span id="name"></span> <span class="badge" id="role"></span></h2>
@@ -33,6 +33,11 @@
               'Suppliers', 'Licenses', 'Alerts', 'Reports'],
       staff: ['Products', 'Batches and Stock', 'Sales and Billing', 'Farmers', 'Suppliers', 'Alerts'],
       inspector: ['Products', 'Batches and Stock', 'Sales History', 'Licenses', 'Alerts', 'Reports']
+    };
+    const links = {
+      'Products': '/products.html',
+      'Suppliers': '/suppliers.html',
+      'Batches and Stock': '/batches.html'
     };
 
     const token = localStorage.getItem('token');
@@ -47,7 +52,7 @@
         menus[user.role].forEach(item => {
           const a = document.createElement('a');
           a.className = 'tile';
-          a.href = '#';
+          a.href = links[item] || '#';
           a.textContent = item;
           menu.appendChild(a);
         });

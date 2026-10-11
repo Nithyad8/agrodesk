@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AgroDesk - Batches and Stock</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; background: #f1f5ee; }
+    header { background: #2e6b34; color: #fff; padding: 14px 24px; display: flex;
+             justify-content: space-between; align-items: center; }
+    header a { color: #fff; text-decoration: none; }
+    main { padding: 24px; max-width: 1200px; margin: auto; }
+    .box { background: #fff; padding: 18px; border-radius: 10px; margin-bottom: 20px;
+           box-shadow: 0 1px 6px rgba(0,0,0,.08); }
+    h3 { margin-top: 0; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; }
+    label { font-size: 12px; color: #555; display: block; margin-bottom: 3px; }
+    .field { flex: 1; min-width: 150px; }
+    input, select { padding: 9px; border: 1px solid #bbb; border-radius: 6px; width: 100%; box-sizing: border-box; }
+    button { padding: 9px 14px; border: 0; border-radius: 6px; background: #2e6b34; color: #fff; cursor: pointer; }
+    button.grey { background: #777; } button.red { background: #b00020; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 9px; border-bottom: 1px solid #e2e2e2; font-size: 14px; }
+    th { background: #e3f1e4; }
+    .tag { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin-right: 4px; }
+    .expired { background: #fde0e0; color: #8a1010; }
+    .near_expiry { background: #fff0cc; color: #7a5200; }
+    .low_stock { background: #ffe3d0; color: #8a3a00; }
+    .good { background: #e3f1e4; color: #2e6b34; }
+    #msg { min-height: 20px; margin: 8px 0; font-size: 14px; }
+    .ok { color: #2e6b34; } .err { color: #b00020; }
+  </style>
+</head>
+<body>
+  <header><strong>AgroDesk - Batches and Stock</strong><a href="/dashboard.html">Back to dashboard</a></header>
+  <main>
+    <div class="box" id="formBox" style="display:none">
+      <h3 id="formTitle">Add batch</h3>
+      <form id="form">
+        <div class="row">
+          <div class="field"><label>Product</label><select id="product_id" required></select></div>
+          <div class="field"><label>Supplier</label><select id="supplier_id" required></select></div>
+          <div class="field"><label>Batch number</label><input id="batch_no" required></div>
+          <div class="field"><label>Quantity</label><input id="quantity" type="number" min="0" required></div>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <div class="field"><label>Manufacture date</label><input id="mfg_date" type="date"></div>
+          <div class="field"><label>Expiry date</label><input id="expiry_date" type="date" required></div>
+          <div class="field"><label>Purchase price</label><input id="purchase_price" type="number" step="0.01" min="0"></div>
+          <div class="field"><label>Selling price</label><input id="selling_price" type="number" step="0.01" min="0"></div>
+        </div>
+        <div style="margin-top:12px">
+          <button type="submit">Save batch</button>
+          <button type="button" class="grey" id="cancelBtn">Clear</button>
+        </div>
+      </form>
+    </div>
+    <div id="msg"></div>
+    <div class="box">
+      <div class="row" style="margin-bottom:12px">
+        <div class="field"><input id="search" placeholder="Search product or batch number"></div>
+        <div class="field">
+          <select id="status">
+            <option value="">All batches</option>
+            <option value="expired">Expired</option>
+            <option value="near_expiry">Near expiry (30 days)</option>
+            <option value="low_stock">Low stock (10 or less)</option>
+          </select>
+        </div>
+      </div>
+      <table>
+        <thead><tr><th>Product</th><th>Batch</th><th>Supplier</th><th>Mfg</th><th>Expiry</th>
+          <th>Days left</th><th>Qty</th><th>Price</th><th>Status</th><th class="canEdit"></th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </main>
+  <script>
+    const token = localStorage.getItem('token');
+    const user = JSON.parse(localStorage.getItem('user') || 'null');
+    if (!token || !user) window.location.href = '/login.html';
+    const canEdit = user && (user.role === 'owner' || user.role === 'staff');
+    const isOwner = user && user.role === 'owner';
+    let list = [], editingId = null;
+    const $ = (id) => document.getElementById(id);
+    const show = (t, ok) => { $('msg').textContent = t; $('msg').className = ok ? 'ok' : 'err'; };
+    const LABELS = { expired: 'Expired', near_expiry: 'Near expiry', low_stock: 'Low stock' };
+
+    async function api(url, options = {}) {
+      const res = await fetch(url, { ...options,
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token } });
+      if (res.status === 401) { localStorage.clear(); window.location.href = '/login.html'; }
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Something went wrong');
+      return data;
+    }
+    function fillSelect(sel, items, idKey, labelKey, placeholder) {
+      sel.innerHTML = '';
+      sel.add(new Option(placeholder, ''));
+      items.forEach(i => sel.add(new Option(i[labelKey], i[idKey])));
+    }
+    async function loadDropdowns() {
+      const [products, suppliers] = await Promise.all([api('/api/products'), api('/api/suppliers')]);
+      fillSelect($('product_id'), products, 'product_id', 'name', 'Choose product');
+      fillSelect($('supplier_id'), suppliers, 'supplier_id', 'name', 'Choose supplier');
+    }
+    async function load() {
+      const q = new URLSearchParams({ search: $('search').value.trim(), status: $('status').value });
+      try { list = await api('/api/batches?' + q); render(); } catch (e) { show(e.message, false); }
+    }
+    function render() {
+      const body = $('rows'); body.innerHTML = '';
+      if (!list.length) { const td = body.insertRow().insertCell(); td.colSpan = 10; td.textContent = 'No batches found'; return; }
+      list.forEach(b => {
+        const tr = body.insertRow();
+        [b.product_name, b.batch_no, b.supplier_name, b.mfg_date || '-', b.expiry_date,
+         b.days_to_expiry, b.quantity + ' ' + b.unit, b.selling_price ?? '-']
+          .forEach(v => { tr.insertCell().textContent = v; });
+        const st = tr.insertCell();
+        if (!b.flags.length) { const s = document.createElement('span'); s.className = 'tag good'; s.textContent = 'OK'; st.append(s); }
+        b.flags.forEach(f => { const s = document.createElement('span'); s.className = 'tag ' + f; s.textContent = LABELS[f]; st.append(s); });
+        const a = tr.insertCell();
+        if (canEdit) {
+          const e = document.createElement('button'); e.textContent = 'Edit'; e.onclick = () => startEdit(b);
+          a.append(e);
+          if (isOwner) {
+            const d = document.createElement('button'); d.textContent = 'Delete'; d.className = 'red';
+            d.style.marginLeft = '6px'; d.onclick = () => remove(b); a.append(d);
+          }
+        }
+      });
+    }
+    function startEdit(b) {
+      editingId = b.batch_id; $('formTitle').textContent = 'Edit batch';
+      ['product_id','supplier_id','batch_no','quantity','mfg_date','expiry_date','purchase_price','selling_price']
+        .forEach(k => { $(k).value = b[k] ?? ''; });
+      window.scrollTo(0, 0);
+    }
+    function clearForm() { editingId = null; $('form').reset(); $('formTitle').textContent = 'Add batch'; }
+    async function remove(b) {
+      if (!confirm('Delete batch ' + b.batch_no + '?')) return;
+      try { show((await api('/api/batches/' + b.batch_id, { method: 'DELETE' })).message, true); load(); }
+      catch (e) { show(e.message, false); }
+    }
+    $('form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const body = JSON.stringify(Object.fromEntries(
+        ['product_id','supplier_id','batch_no','quantity','mfg_date','expiry_date','purchase_price','selling_price']
+          .map(k => [k, $(k).value])));
+      try {
+        const r = editingId
+          ? await api('/api/batches/' + editingId, { method: 'PUT', body })
+          : await api('/api/batches', { method: 'POST', body });
+        show(r.message, true); clearForm(); load();
+      } catch (err) { show(err.message, false); }
+    });
+    $('cancelBtn').addEventListener('click', clearForm);
+    $('search').addEventListener('input', load);
+    $('status').addEventListener('change', load);
+
+    if (canEdit) { $('formBox').style.display = 'block'; loadDropdowns().catch(e => show(e.message, false)); }
+    else document.querySelectorAll('.canEdit').forEach(el => el.style.display = 'none');
+    load();
+  </script>
+</body>
+</html>
