@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AgroDesk - Login</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f1f5ee; display: flex;
+           align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
+    .card { background: #fff; padding: 32px; border-radius: 10px; width: 320px;
+            box-shadow: 0 2px 10px rgba(0,0,0,.1); }
+    h1 { margin: 0 0 4px; color: #2e6b34; }
+    p.sub { margin: 0 0 20px; color: #666; font-size: 14px; }
+    label { display: block; font-size: 14px; margin: 12px 0 4px; }
+    input { width: 100%; padding: 10px; border: 1px solid #bbb; border-radius: 6px; box-sizing: border-box; }
+    button { width: 100%; margin-top: 20px; padding: 11px; background: #2e6b34; color: #fff;
+             border: 0; border-radius: 6px; font-size: 15px; cursor: pointer; }
+    button:hover { background: #245a29; }
+    #error { color: #b00020; font-size: 14px; margin-top: 12px; min-height: 18px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>AgroDesk</h1>
+    <p class="sub">Inventory, Billing and License Management</p>
+    <form id="loginForm">
+      <label for="username">Username</label>
+      <input id="username" required autofocus>
+      <label for="password">Password</label>
+      <input id="password" type="password" required>
+      <button type="submit">Log in</button>
+      <div id="error"></div>
+    </form>
+  </div>
+  <script>
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const error = document.getElementById('error');
+      error.textContent = '';
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username: document.getElementById('username').value.trim(),
+            password: document.getElementById('password').value
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) { error.textContent = data.message; return; }
+        localStorage.setItem('token', data.token);
+        localStorage.setItem('user', JSON.stringify(data.user));
+        window.location.href = '/dashboard.html';
+      } catch (err) {
+        error.textContent = 'Cannot reach the server';
+      }
+    });
+  </script>
+</body>
+</html>
