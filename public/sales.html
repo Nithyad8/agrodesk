@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AgroDesk - Sales history</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; background: #f1f5ee; }
+    header { background: #2e6b34; color: #fff; padding: 14px 24px; display: flex;
+             justify-content: space-between; align-items: center; }
+    header a { color: #fff; text-decoration: none; margin-left: 16px; }
+    main { padding: 24px; max-width: 1100px; margin: auto; }
+    .box { background: #fff; padding: 18px; border-radius: 10px; margin-bottom: 20px;
+           box-shadow: 0 1px 6px rgba(0,0,0,.08); }
+    h3 { margin-top: 0; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+    .field { flex: 1; min-width: 150px; }
+    label { font-size: 12px; color: #555; display: block; margin-bottom: 3px; }
+    input { padding: 9px; border: 1px solid #bbb; border-radius: 6px; width: 100%; box-sizing: border-box; }
+    button { padding: 8px 12px; border: 0; border-radius: 6px; background: #2e6b34; color: #fff; cursor: pointer; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 9px; border-bottom: 1px solid #e2e2e2; font-size: 14px; }
+    th { background: #e3f1e4; }
+    td.num, th.num { text-align: right; }
+    #msg { min-height: 20px; margin: 8px 0; font-size: 14px; color: #b00020; }
+    .inv-head { display: flex; justify-content: space-between; flex-wrap: wrap; margin-bottom: 12px; }
+    .totals { text-align: right; margin-top: 12px; }
+    @media print {
+      body { background: #fff; }
+      body * { visibility: hidden; }
+      #invoice, #invoice * { visibility: visible; }
+      #invoice { position: absolute; left: 0; top: 0; width: 100%; box-shadow: none; }
+      #invoice button { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>AgroDesk - Sales history</strong>
+    <div><a href="/billing.html" id="newBill">New bill</a><a href="/dashboard.html">Dashboard</a></div>
+  </header>
+  <main>
+    <div id="msg"></div>
+
+    <div class="box" id="invoice" style="display:none">
+      <div class="inv-head">
+        <div><h3 style="margin-bottom:4px">AgroDesk - Bill <span id="iNo"></span></h3><div id="iDate"></div></div>
+        <div style="text-align:right"><div id="iFarmer"></div><div id="iContact"></div></div>
+      </div>
+      <table>
+        <thead><tr><th>Product</th><th>Batch</th><th class="num">Qty</th><th class="num">Rate</th>
+          <th class="num">Tax %</th><th class="num">Amount</th></tr></thead>
+        <tbody id="iRows"></tbody>
+      </table>
+      <div class="totals">
+        <div>Subtotal: <span id="iSub"></span></div>
+        <div>Tax: <span id="iTax"></span></div>
+        <div><strong>Total: <span id="iTotal"></span></strong></div>
+        <div>Payment: <span id="iPay"></span></div>
+        <div style="font-size:12px;color:#666">Billed by <span id="iUser"></span></div>
+      </div>
+      <div style="margin-top:12px"><button onclick="window.print()">Print bill</button></div>
+    </div>
+
+    <div class="box">
+      <div class="row">
+        <div class="field"><label>From</label><input id="from" type="date"></div>
+        <div class="field"><label>To</label><input id="to" type="date"></div>
+        <div class="field"><label>Farmer name</label><input id="search" placeholder="Search"></div>
+      </div>
+      <table>
+        <thead><tr><th>Bill</th><th>Date</th><th>Farmer</th><th class="num">Amount</th><th>Payment</th><th>Billed by</th><th></th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </main>
+
+  <script>
+    const token = localStorage.getItem('token');
+    const user = JSON.parse(localStorage.getItem('user') || 'null');
+    if (!token || !user) location.href = '/login.html';
+    if (user && user.role === 'inspector') $ = null;
+    const $$ = (id) => document.getElementById(id);
+    const money = (v) => '\u20B9' + Number(v).toFixed(2);
+    const show = (t) => { $$('msg').textContent = t; };
+    if (user && user.role === 'inspector') $$('newBill').style.display = 'none';
+
+    async function api(url) {
+      const res = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
+      if (res.status === 401) { localStorage.clear(); location.href = '/login.html'; }
+      const text = await res.text();
+      let data;
+      try { data = JSON.parse(text); }
+      catch (e) { throw new Error('Server sent HTML, not JSON (status ' + res.status + ') for ' + url); }
+      if (!res.ok) throw new Error(data.message || 'Something went wrong');
+      return data;
+    }
+
+    async function load() {
+      const q = new URLSearchParams({ from: $$('from').value, to: $$('to').value, search: $$('search').value.trim() });
+      try {
+        const list = await api('/api/sales?' + q);
+        const body = $$('rows'); body.innerHTML = '';
+        if (!list.length) { const td = body.insertRow().insertCell(); td.colSpan = 7; td.textContent = 'No bills found'; return; }
+        list.forEach(s => {
+          const tr = body.insertRow();
+          ['#' + s.sale_id, s.sale_date, s.farmer_name].forEach(v => { tr.insertCell().textContent = v; });
+          const amt = tr.insertCell(); amt.className = 'num'; amt.textContent = money(s.total_amount);
+          [s.payment_mode, s.user_name].forEach(v => { tr.insertCell().textContent = v; });
+          const b = document.createElement('button'); b.textContent = 'View'; b.onclick = () => openInvoice(s.sale_id);
+          tr.insertCell().append(b);
+        });
+      } catch (e) { show(e.message); }
+    }
+
+    async function openInvoice(id) {
+      try {
+        const s = await api('/api/sales/' + id);
+        $$('iNo').textContent = '#' + s.sale_id;
+        $$('iDate').textContent = s.sale_date;
+        $$('iFarmer').textContent = 'Farmer: ' + s.farmer_name;
+        $$('iContact').textContent = [s.phone, s.village].filter(Boolean).join(' | ');
+        const body = $$('iRows'); body.innerHTML = '';
+        s.items.forEach(i => {
+          const tr = body.insertRow();
+          const name = i.product_name + (i.crop ? ' (crop: ' + i.crop + ')' : '');
+          [name, i.batch_no].forEach(v => { tr.insertCell().textContent = v; });
+          [i.quantity + ' ' + i.unit, money(i.price), Number(i.tax_rate) + '%', money(i.line_total)].forEach(v => {
+            const td = tr.insertCell(); td.className = 'num'; td.textContent = v; });
+        });
+        $$('iSub').textContent = money(s.subtotal);
+        $$('iTax').textContent = money(s.tax_total);
+        $$('iTotal').textContent = money(s.total_amount);
+        $$('iPay').textContent = s.payment_mode;
+        $$('iUser').textContent = s.user_name;
+        $$('invoice').style.display = 'block';
+        $$('invoice').scrollIntoView({ behavior: 'smooth' });
+      } catch (e) { show(e.message); }
+    }
+
+    ['from', 'to'].forEach(id => $$(id).addEventListener('change', load));
+    $$('search').addEventListener('input', load);
+    load();
+    const openId = new URLSearchParams(location.search).get('id');
+    if (openId) openInvoice(openId);
+  </script>
+</body>
+</html>

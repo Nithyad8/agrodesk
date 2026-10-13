@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AgroDesk - New bill</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; background: #f1f5ee; }
+    header { background: #2e6b34; color: #fff; padding: 14px 24px; display: flex;
+             justify-content: space-between; align-items: center; }
+    header a { color: #fff; text-decoration: none; margin-left: 16px; }
+    main { padding: 24px; max-width: 1100px; margin: auto; }
+    .box { background: #fff; padding: 18px; border-radius: 10px; margin-bottom: 20px;
+           box-shadow: 0 1px 6px rgba(0,0,0,.08); }
+    h3 { margin-top: 0; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; }
+    .field { flex: 1; min-width: 160px; }
+    label { font-size: 12px; color: #555; display: block; margin-bottom: 3px; }
+    input, select { padding: 9px; border: 1px solid #bbb; border-radius: 6px; width: 100%; box-sizing: border-box; }
+    button { padding: 9px 14px; border: 0; border-radius: 6px; background: #2e6b34; color: #fff; cursor: pointer; }
+    button.red { background: #b00020; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 9px; border-bottom: 1px solid #e2e2e2; font-size: 14px; }
+    th { background: #e3f1e4; }
+    td.num, th.num { text-align: right; }
+    .totals { text-align: right; margin-top: 12px; font-size: 15px; }
+    .totals strong { font-size: 18px; }
+    #msg { min-height: 20px; margin: 8px 0; font-size: 14px; }
+    .ok { color: #2e6b34; } .err { color: #b00020; }
+    .hint { font-size: 12px; color: #666; margin-top: 4px; }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>AgroDesk - New bill</strong>
+    <div><a href="/sales.html">Sales history</a><a href="/dashboard.html">Dashboard</a></div>
+  </header>
+  <main>
+    <div class="box">
+      <div class="row">
+        <div class="field">
+          <label>Farmer</label>
+          <select id="farmer"></select>
+          <div class="hint"><a href="/farmers.html">Add a new farmer</a></div>
+        </div>
+        <div class="field">
+          <label>Payment</label>
+          <select id="payment">
+            <option value="cash">Cash</option>
+            <option value="upi">UPI</option>
+            <option value="credit">Credit (pay later)</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="box">
+      <h3>Add item</h3>
+      <div class="row">
+        <div class="field" style="flex:3"><label>Product and batch</label><select id="batch"></select></div>
+        <div class="field"><label>Quantity</label><input id="qty" type="number" min="1" value="1"></div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <div class="field"><label id="cropLabel">Crop (optional)</label><input id="crop" placeholder="For example tomato"></div>
+        <div class="field" id="dateField" style="display:none"><label>Application date</label><input id="appdate" type="date"></div>
+        <div class="field" style="flex:2"><label>Pack codes (optional, comma separated)</label><input id="packs" placeholder="B1-0001, B1-0002"></div>
+      </div>
+      <div style="margin-top:12px"><button id="addBtn">Add to bill</button></div>
+    </div>
+
+    <div id="msg"></div>
+
+    <div class="box">
+      <h3>Bill items</h3>
+      <table>
+        <thead><tr><th>Product</th><th>Batch</th><th class="num">Qty</th><th class="num">Rate</th>
+          <th class="num">Tax %</th><th class="num">Amount</th><th></th></tr></thead>
+        <tbody id="cart"></tbody>
+      </table>
+      <div class="totals">
+        <div>Subtotal: <span id="sub">0.00</span></div>
+        <div>Tax: <span id="tax">0.00</span></div>
+        <div><strong>Total: <span id="total">0.00</span></strong></div>
+      </div>
+      <div style="text-align:right;margin-top:14px"><button id="saveBtn">Save bill</button></div>
+    </div>
+  </main>
+
+  <script>
+    const token = localStorage.getItem('token');
+    const user = JSON.parse(localStorage.getItem('user') || 'null');
+    if (!token || !user) location.href = '/login.html';
+    if (user && user.role === 'inspector') location.href = '/dashboard.html';
+
+    const $ = (id) => document.getElementById(id);
+    const show = (t, ok) => { $('msg').textContent = t; $('msg').className = ok ? 'ok' : 'err'; };
+    const money = (v) => '\u20B9' + Number(v).toFixed(2);
+    const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
+
+    let batches = [], products = {}, cart = [];
+
+    async function api(url, options = {}) {
+      const res = await fetch(url, { ...options,
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token } });
+      if (res.status === 401) { localStorage.clear(); location.href = '/login.html'; }
+      const text = await res.text();
+      let data;
+      try { data = JSON.parse(text); }
+      catch (e) { throw new Error('Server sent HTML, not JSON (status ' + res.status + ') for ' + url); }
+      if (!res.ok) throw new Error(data.message || 'Something went wrong');
+      return data;
+    }
+
+    const selected = () => batches.find(b => String(b.batch_id) === $('batch').value);
+    const isPesticide = (b) => b && products[b.product_id] && products[b.product_id].category === 'pesticide';
+
+    async function init() {
+      const [farmers, bs, ps] = await Promise.all([api('/api/farmers'), api('/api/batches'), api('/api/products')]);
+      ps.forEach(p => { products[p.product_id] = p; });
+
+      $('farmer').add(new Option('Choose farmer', ''));
+      farmers.forEach(f => $('farmer').add(new Option(f.name + (f.village ? ' (' + f.village + ')' : ''), f.farmer_id)));
+
+      batches = bs.filter(b => b.days_to_expiry >= 0 && b.quantity > 0 && b.selling_price != null);
+      $('batch').add(new Option('Choose product and batch', ''));
+      batches.forEach(b => {
+        const warn = b.flags.includes('near_expiry') ? ' [near expiry]' : '';
+        $('batch').add(new Option(
+          b.product_name + ' | Batch ' + b.batch_no + ' | ' + b.quantity + ' ' + b.unit +
+          ' left | exp ' + b.expiry_date + ' | ' + money(b.selling_price) + warn, b.batch_id));
+      });
+      $('appdate').value = new Date().toLocaleDateString('en-CA');
+    }
+
+    $('batch').addEventListener('change', () => {
+      const pest = isPesticide(selected());
+      $('dateField').style.display = pest ? 'block' : 'none';
+      $('cropLabel').textContent = pest ? 'Crop (required for pesticides)' : 'Crop (optional)';
+    });
+
+    $('addBtn').addEventListener('click', () => {
+      const b = selected();
+      if (!b) return show('Choose a product and batch', false);
+      const qty = Number($('qty').value);
+      if (!Number.isInteger(qty) || qty < 1) return show('Quantity must be a whole number, 1 or more', false);
+      const inCart = cart.filter(c => c.batch.batch_id === b.batch_id).reduce((s, c) => s + c.quantity, 0);
+      if (qty + inCart > b.quantity) return show('Only ' + b.quantity + ' ' + b.unit + ' in stock (' + inCart + ' already on this bill)', false);
+      const crop = $('crop').value.trim();
+      const pest = isPesticide(b);
+      if (pest && !crop) return show('Enter the crop for a pesticide', false);
+      const codes = $('packs').value.split(/[\s,]+/).map(c => c.trim()).filter(Boolean);
+      if (codes.length && codes.length !== qty) return show('Enter exactly ' + qty + ' pack codes, or leave the box empty', false);
+      cart.push({ batch: b, quantity: qty, crop, application_date: pest ? $('appdate').value : null, pack_codes: codes });
+      $('qty').value = 1; $('crop').value = ''; $('packs').value = '';
+      show('', true);
+      render();
+    });
+
+    function render() {
+      const body = $('cart'); body.innerHTML = '';
+      let sub = 0, tax = 0;
+      if (!cart.length) { const td = body.insertRow().insertCell(); td.colSpan = 7; td.textContent = 'No items yet'; }
+      cart.forEach((c, i) => {
+        const rate = Number((products[c.batch.product_id] || {}).tax_rate || 0);
+        const price = Number(c.batch.selling_price);
+        const line = round2(price * c.quantity), t = round2(line * rate / 100);
+        sub += line; tax += t;
+        const tr = body.insertRow();
+        [c.batch.product_name, c.batch.batch_no].forEach(v => { tr.insertCell().textContent = v; });
+        [c.quantity + ' ' + c.batch.unit, money(price), rate + '%', money(line)].forEach(v => {
+          const td = tr.insertCell(); td.className = 'num'; td.textContent = v; });
+        const a = tr.insertCell();
+        const x = document.createElement('button'); x.textContent = 'Remove'; x.className = 'red';
+        x.onclick = () => { cart.splice(i, 1); render(); };
+        a.append(x);
+      });
+      $('sub').textContent = money(sub);
+      $('tax').textContent = money(tax);
+      $('total').textContent = money(round2(sub + tax));
+    }
+
+    $('saveBtn').addEventListener('click', async () => {
+      if (!$('farmer').value) return show('Choose a farmer', false);
+      if (!cart.length) return show('Add at least one item', false);
+      $('saveBtn').disabled = true;
+      try {
+        const r = await api('/api/sales', { method: 'POST', body: JSON.stringify({
+          farmer_id: $('farmer').value,
+          payment_mode: $('payment').value,
+          items: cart.map(c => ({ batch_id: c.batch.batch_id, quantity: c.quantity, crop: c.crop,
+                                  application_date: c.application_date, pack_codes: c.pack_codes }))
+        }) });
+        location.href = '/sales.html?id=' + r.sale_id;
+      } catch (e) { show(e.message, false); $('saveBtn').disabled = false; }
+    });
+
+    init().then(render).catch(e => show(e.message, false));
+  </script>
+</body>
+</html>
