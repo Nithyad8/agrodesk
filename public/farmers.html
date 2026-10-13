@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AgroDesk - Farmers</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; background: #f1f5ee; }
+    header { background: #2e6b34; color: #fff; padding: 14px 24px; display: flex;
+             justify-content: space-between; align-items: center; }
+    header a { color: #fff; text-decoration: none; }
+    main { padding: 24px; max-width: 1100px; margin: auto; }
+    .box { background: #fff; padding: 18px; border-radius: 10px; margin-bottom: 20px;
+           box-shadow: 0 1px 6px rgba(0,0,0,.08); }
+    h3 { margin-top: 0; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; }
+    input { padding: 9px; border: 1px solid #bbb; border-radius: 6px; flex: 1; min-width: 150px; }
+    button { padding: 8px 12px; border: 0; border-radius: 6px; background: #2e6b34; color: #fff; cursor: pointer; margin-right: 4px; }
+    button.grey { background: #777; } button.red { background: #b00020; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 9px; border-bottom: 1px solid #e2e2e2; font-size: 14px; }
+    th { background: #e3f1e4; }
+    #msg { min-height: 20px; margin: 8px 0; font-size: 14px; }
+    .ok { color: #2e6b34; } .err { color: #b00020; }
+    .due { color: #b00020; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <header><strong>AgroDesk - Farmers</strong><a href="/dashboard.html">Back to dashboard</a></header>
+  <main>
+    <div class="box">
+      <h3 id="formTitle">Add farmer</h3>
+      <form id="form">
+        <div class="row">
+          <input id="name" placeholder="Farmer name" required>
+          <input id="phone" placeholder="Phone (10 digits)" maxlength="10">
+          <input id="village" placeholder="Village">
+          <input id="land_details" placeholder="Land details (for example 3 acres, tomato)">
+        </div>
+        <div style="margin-top:12px">
+          <button type="submit">Save farmer</button>
+          <button type="button" class="grey" id="cancelBtn">Clear</button>
+        </div>
+      </form>
+    </div>
+
+    <div id="msg"></div>
+
+    <div class="box">
+      <input id="search" placeholder="Search by name, phone or village"
+             style="width:100%;box-sizing:border-box;margin-bottom:12px">
+      <table>
+        <thead><tr><th>Name</th><th>Phone</th><th>Village</th><th>Land</th><th>Credit owed</th><th></th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+
+    <div class="box" id="profile" style="display:none">
+      <h3 id="pTitle"></h3>
+      <p id="pInfo"></p>
+      <table>
+        <thead><tr><th>Date</th><th>Bill</th><th>Product</th><th>Qty</th><th>Price</th><th>Crop</th><th>Payment</th></tr></thead>
+        <tbody id="history"></tbody>
+      </table>
+    </div>
+  </main>
+
+  <script>
+    const token = localStorage.getItem('token');
+    const user = JSON.parse(localStorage.getItem('user') || 'null');
+    if (!token || !user) location.href = '/login.html';
+    if (user && user.role === 'inspector') location.href = '/dashboard.html';
+    const isOwner = user && user.role === 'owner';
+    let list = [], editingId = null;
+    const $ = (id) => document.getElementById(id);
+    const show = (t, ok) => { $('msg').textContent = t; $('msg').className = ok ? 'ok' : 'err'; };
+    const money = (v) => '\u20B9' + Number(v).toFixed(2);
+
+    async function api(url, options = {}) {
+      const res = await fetch(url, { ...options,
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token } });
+      if (res.status === 401) { localStorage.clear(); location.href = '/login.html'; }
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Something went wrong');
+      return data;
+    }
+
+    async function load() {
+      try {
+        list = await api('/api/farmers?search=' + encodeURIComponent($('search').value.trim()));
+        render();
+      } catch (e) { show(e.message, false); }
+    }
+
+    function btn(text, cls, fn) {
+      const b = document.createElement('button');
+      b.textContent = text; if (cls) b.className = cls; b.onclick = fn; return b;
+    }
+
+    function render() {
+      const body = $('rows'); body.innerHTML = '';
+      if (!list.length) { const td = body.insertRow().insertCell(); td.colSpan = 6; td.textContent = 'No farmers found'; return; }
+      list.forEach(f => {
+        const tr = body.insertRow();
+        [f.name, f.phone || '-', f.village || '-', f.land_details || '-'].forEach(v => { tr.insertCell().textContent = v; });
+        const c = tr.insertCell();
+        c.textContent = money(f.credit_balance);
+        if (Number(f.credit_balance) > 0) c.className = 'due';
+        const a = tr.insertCell();
+        a.append(btn('View', 'grey', () => viewProfile(f.farmer_id)));
+        if (Number(f.credit_balance) > 0) a.append(btn('Pay', '', () => pay(f)));
+        a.append(btn('Edit', '', () => startEdit(f)));
+        if (isOwner) a.append(btn('Delete', 'red', () => remove(f)));
+      });
+    }
+
+    async function viewProfile(id) {
+      try {
+        const f = await api('/api/farmers/' + id);
+        $('pTitle').textContent = f.name + ' - purchase history';
+        $('pInfo').textContent = 'Phone: ' + (f.phone || '-') + ' | Village: ' + (f.village || '-') +
+          ' | Credit owed: ' + money(f.credit_balance);
+        const body = $('history'); body.innerHTML = '';
+        if (!f.history.length) { const td = body.insertRow().insertCell(); td.colSpan = 7; td.textContent = 'No purchases yet'; }
+        f.history.forEach(h => {
+          const tr = body.insertRow();
+          [h.sale_date, '#' + h.sale_id, h.product_name, h.quantity + ' ' + h.unit, money(h.price),
+           h.crop || '-', h.payment_mode].forEach(v => { tr.insertCell().textContent = v; });
+        });
+        $('profile').style.display = 'block';
+        $('profile').scrollIntoView({ behavior: 'smooth' });
+      } catch (e) { show(e.message, false); }
+    }
+
+    async function pay(f) {
+      const input = prompt('Payment received from ' + f.name + ' (owes ' + money(f.credit_balance) + '):');
+      if (input === null) return;
+      try {
+        const r = await api('/api/farmers/' + f.farmer_id + '/payment',
+          { method: 'POST', body: JSON.stringify({ amount: input }) });
+        show(r.message, true); load();
+      } catch (e) { show(e.message, false); }
+    }
+
+    function startEdit(f) {
+      editingId = f.farmer_id; $('formTitle').textContent = 'Edit farmer';
+      $('name').value = f.name; $('phone').value = f.phone || '';
+      $('village').value = f.village || ''; $('land_details').value = f.land_details || '';
+      window.scrollTo(0, 0);
+    }
+    function clearForm() { editingId = null; $('form').reset(); $('formTitle').textContent = 'Add farmer'; }
+
+    async function remove(f) {
+      if (!confirm('Delete ' + f.name + '?')) return;
+      try { show((await api('/api/farmers/' + f.farmer_id, { method: 'DELETE' })).message, true); load(); }
+      catch (e) { show(e.message, false); }
+    }
+
+    $('form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const body = JSON.stringify({ name: $('name').value, phone: $('phone').value,
+        village: $('village').value, land_details: $('land_details').value });
+      try {
+        const r = editingId
+          ? await api('/api/farmers/' + editingId, { method: 'PUT', body })
+          : await api('/api/farmers', { method: 'POST', body });
+        show(r.message, true); clearForm(); load();
+      } catch (err) { show(err.message, false); }
+    });
+    $('cancelBtn').addEventListener('click', clearForm);
+    $('search').addEventListener('input', load);
+    load();
+  </script>
+</body>
+</html>

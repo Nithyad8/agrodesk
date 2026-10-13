@@ -172,4 +172,55 @@ router.get('/:id/details', async (req, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 });
+router.post('/:id/packs/generate', authorize('owner', 'staff'), async (req, res) => {
+  try {
+    const [b] = await pool.query('SELECT batch_id, quantity FROM batches WHERE batch_id = ?', [req.params.id]);
+    if (!b[0]) return res.status(404).json({ message: 'Batch not found' });
+
+    const [[total]] = await pool.query('SELECT COUNT(*) AS n FROM packs WHERE batch_id = ?', [req.params.id]);
+    const [[stock]] = await pool.query(
+      "SELECT COUNT(*) AS n FROM packs WHERE batch_id = ? AND status = 'in_stock'", [req.params.id]);
+    const allowed = b[0].quantity - stock.n;
+    if (allowed <= 0) return res.status(400).json({ message: 'Every unit in this batch already has a pack code' });
+
+    const count = req.body.count === '' || req.body.count == null ? allowed : Number(req.body.count);
+    if (!Number.isInteger(count) || count < 1 || count > 1000) {
+      return res.status(400).json({ message: 'Enter a whole number from 1 to 1000' });
+    }
+    if (count > allowed) {
+      return res.status(400).json({ message: `Only ${allowed} more pack codes can be created for this batch` });
+    }
+
+    const values = [];
+    for (let i = 1; i <= count; i++) {
+      values.push([req.params.id, `B${req.params.id}-${String(total.n + i).padStart(4, '0')}`]);
+    }
+    await pool.query('INSERT INTO packs (batch_id, pack_code) VALUES ?', [values]);
+    res.status(201).json({ message: count + ' pack codes created' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error: ' + (err.code || '') + ' ' + err.message });
+  }
+});
+
+router.get('/:id/packs', async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT b.batch_id, b.batch_no, b.expiry_date, b.quantity, p.name AS product_name
+       FROM batches b JOIN products p ON p.product_id = b.product_id WHERE b.batch_id = ?`, [req.params.id]);
+    if (!rows[0]) return res.status(404).json({ message: 'Batch not found' });
+
+    const [packs] = await pool.query(
+      'SELECT pack_code, status FROM packs WHERE batch_id = ? ORDER BY pack_id', [req.params.id]);
+    const withQr = await Promise.all(packs.map(async (pk) => ({
+      ...pk,
+      dataUrl: await QRCode.toDataURL(`${baseUrl(req)}/pack.html?code=${pk.pack_code}`, { width: 200, margin: 1 }),
+    })));
+    const inStock = packs.filter(pk => pk.status === 'in_stock').length;
+    res.json({ batch: rows[0], in_stock: inStock, allowed: Math.max(0, rows[0].quantity - inStock), packs: withQr });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error: ' + (err.code || '') + ' ' + err.message });
+  }
+});
 module.exports = router;

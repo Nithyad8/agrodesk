@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AgroDesk - Pack details</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; background: #f1f5ee; }
+    header { background: #2e6b34; color: #fff; padding: 14px 24px; }
+    main { padding: 20px; max-width: 600px; margin: auto; }
+    .box { background: #fff; padding: 18px; border-radius: 10px; box-shadow: 0 1px 6px rgba(0,0,0,.08); }
+    h2 { margin-top: 0; }
+    dl { display: grid; grid-template-columns: 140px 1fr; gap: 8px 12px; margin: 0; }
+    dt { color: #666; } dd { margin: 0; font-weight: bold; }
+    .tag { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; }
+    .expired { background: #fde0e0; color: #8a1010; }
+    .near_expiry { background: #fff0cc; color: #7a5200; }
+    .ok, .in_stock { background: #e3f1e4; color: #2e6b34; }
+    .sold { background: #e8e8e8; color: #444; }
+    .recall { background: #fde0e0; color: #8a1010; padding: 12px; border-radius: 8px; margin-bottom: 16px; font-weight: bold; }
+    #err { color: #b00020; }
+  </style>
+</head>
+<body>
+  <header><strong>AgroDesk - Pack details</strong></header>
+  <main>
+    <div id="err"></div>
+    <div class="box" id="info" style="display:none">
+      <div id="recall" class="recall" style="display:none"></div>
+      <h2 id="title"></h2>
+      <dl id="fields"></dl>
+      <p><a id="batchLink" href="#">View batch details</a></p>
+    </div>
+  </main>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const code = new URLSearchParams(location.search).get('code');
+    const EXPIRY = { ok: 'OK', near_expiry: 'Near expiry', expired: 'Expired' };
+    const PACK = { in_stock: 'In stock', sold: 'Sold' };
+
+    function row(k, v, cls) {
+      const dt = document.createElement('dt'); dt.textContent = k;
+      const dd = document.createElement('dd');
+      if (cls) { const s = document.createElement('span'); s.className = 'tag ' + cls; s.textContent = v; dd.append(s); }
+      else dd.textContent = v;
+      $('fields').append(dt, dd);
+    }
+
+    async function init() {
+      const res = await fetch('/api/public/pack/' + encodeURIComponent(code));
+      const p = await res.json();
+      if (!res.ok) { $('err').textContent = p.message; return; }
+      $('title').textContent = p.product_name;
+      if (p.recalled) {
+        $('recall').textContent = 'RECALL NOTICE: please do not use this pack. Reason: ' + p.recall_reason;
+        $('recall').style.display = 'block';
+      }
+      row('Pack code', p.pack_code);
+      row('Batch', p.batch_no);
+      row('Manufacturer', p.manufacturer || '-');
+      row('Manufactured', p.mfg_date || '-');
+      row('Expiry date', p.expiry_date);
+      row('Expiry status', EXPIRY[p.status], p.status);
+      row('Pack status', PACK[p.pack_status], p.pack_status);
+      $('batchLink').href = '/batch.html?id=' + p.batch_id;
+      $('info').style.display = 'block';
+    }
+    init().catch(() => { $('err').textContent = 'Cannot reach the server'; });
+  </script>
+</body>
+</html>

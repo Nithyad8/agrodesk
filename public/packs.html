@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AgroDesk - Pack QR labels</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; background: #f1f5ee; }
+    header { background: #2e6b34; color: #fff; padding: 14px 24px; display: flex;
+             justify-content: space-between; align-items: center; }
+    header a { color: #fff; text-decoration: none; }
+    main { padding: 24px; max-width: 1100px; margin: auto; }
+    .box { background: #fff; padding: 18px; border-radius: 10px; margin-bottom: 20px;
+           box-shadow: 0 1px 6px rgba(0,0,0,.08); }
+    input { padding: 9px; border: 1px solid #bbb; border-radius: 6px; width: 140px; }
+    button { padding: 9px 14px; border: 0; border-radius: 6px; background: #2e6b34; color: #fff; cursor: pointer; }
+    button.grey { background: #777; }
+    #msg { min-height: 20px; margin: 8px 0; font-size: 14px; }
+    .ok { color: #2e6b34; } .err { color: #b00020; }
+    .sheet { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+    .label { background: #fff; border: 1px dashed #888; padding: 8px; text-align: center; font-size: 12px; page-break-inside: avoid; }
+    .label img { width: 130px; height: 130px; }
+    .label.sold { opacity: .5; }
+    @media print {
+      body { background: #fff; }
+      header, .noprint { display: none; }
+      main { padding: 0; }
+      .sheet { grid-template-columns: repeat(4, 1fr); }
+    }
+  </style>
+</head>
+<body>
+  <header><strong>AgroDesk - Pack QR labels</strong><a href="/batches.html">Back to batches</a></header>
+  <main>
+    <div class="box noprint">
+      <h3 id="title" style="margin-top:0"></h3>
+      <p id="summary"></p>
+      <div id="createRow">
+        <input id="count" type="number" min="1" max="1000" placeholder="How many?">
+        <button id="createBtn">Create pack codes</button>
+        <button class="grey" onclick="window.print()">Print labels</button>
+      </div>
+      <div id="msg"></div>
+    </div>
+    <div class="sheet" id="sheet"></div>
+  </main>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const token = localStorage.getItem('token');
+    const user = JSON.parse(localStorage.getItem('user') || 'null');
+    const batchId = new URLSearchParams(location.search).get('batch');
+    if (!token || !user) location.href = '/login.html';
+    const show = (t, ok) => { $('msg').textContent = t; $('msg').className = ok ? 'ok' : 'err'; };
+
+    async function api(url, options = {}) {
+      const res = await fetch(url, { ...options,
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token } });
+      if (res.status === 401) { localStorage.clear(); location.href = '/login.html'; }
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Something went wrong');
+      return data;
+    }
+
+    async function load() {
+      try {
+        const d = await api('/api/batches/' + encodeURIComponent(batchId) + '/packs');
+        $('title').textContent = d.batch.product_name + ' - Batch ' + d.batch.batch_no;
+        $('summary').textContent = 'Expiry ' + d.batch.expiry_date + '. Batch quantity: ' + d.batch.quantity +
+          '. Packs in stock with a code: ' + d.in_stock + '. More codes you can create: ' + d.allowed + '.';
+        $('count').placeholder = 'How many? (max ' + d.allowed + ')';
+        const sheet = $('sheet'); sheet.innerHTML = '';
+        d.packs.forEach(pk => {
+          const div = document.createElement('div');
+          div.className = 'label' + (pk.status === 'sold' ? ' sold' : '');
+          const img = document.createElement('img'); img.src = pk.dataUrl; img.alt = 'QR ' + pk.pack_code;
+          const code = document.createElement('div'); code.innerHTML = '<strong></strong>'; code.firstChild.textContent = pk.pack_code;
+          const info = document.createElement('div');
+          info.textContent = d.batch.product_name + ' | Exp ' + d.batch.expiry_date;
+          div.append(img, code, info);
+          sheet.append(div);
+        });
+      } catch (e) { show(e.message, false); }
+    }
+
+    $('createBtn').addEventListener('click', async () => {
+      try {
+        const r = await api('/api/batches/' + encodeURIComponent(batchId) + '/packs/generate',
+          { method: 'POST', body: JSON.stringify({ count: $('count').value }) });
+        show(r.message, true); $('count').value = ''; load();
+      } catch (e) { show(e.message, false); }
+    });
+
+    if (user.role === 'inspector') $('createRow').querySelector('input').style.display = 'none', $('createBtn').style.display = 'none';
+    load();
+  </script>
+</body>
+</html>

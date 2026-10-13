@@ -142,6 +142,10 @@
     const q = document.createElement('button');
     q.textContent = 'QR'; q.className = 'grey'; q.onclick = () => showQr(b);
     a.append(q);
+    const pk = document.createElement('button');
+pk.textContent = 'Packs'; pk.className = 'grey'; pk.style.marginLeft = '6px';
+pk.onclick = () => { location.href = '/packs.html?batch=' + b.batch_id; };
+a.append(pk);
     if (canEdit) {
       const e = document.createElement('button');
       e.textContent = 'Edit'; e.style.marginLeft = '6px'; e.onclick = () => startEdit(b);
