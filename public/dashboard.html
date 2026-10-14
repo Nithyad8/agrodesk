@@ -16,6 +16,7 @@
     .tile { background: #fff; padding: 22px 16px; border-radius: 10px; text-align: center;
             text-decoration: none; color: #222; box-shadow: 0 1px 6px rgba(0,0,0,.08); }
     .tile:hover { box-shadow: 0 3px 12px rgba(0,0,0,.15); }
+    #err { color: #b00020; margin-top: 12px; }
   </style>
 </head>
 <body>
@@ -25,46 +26,65 @@
   </header>
   <main>
     <h2>Welcome, <span id="name"></span> <span class="badge" id="role"></span></h2>
+    <div id="err"></div>
     <div class="grid" id="menu"></div>
   </main>
   <script>
     const menus = {
-      owner: ['Users', 'Products', 'Batches and Stock', 'Sales and Billing', 'Farmers',
+      owner: ['Users', 'Products', 'Batches and Stock', 'Sales and Billing', 'Sales History', 'Farmers',
               'Suppliers', 'Licenses', 'Alerts', 'Reports'],
-      staff: ['Products', 'Batches and Stock', 'Sales and Billing', 'Farmers', 'Suppliers', 'Alerts'],
+      staff: ['Products', 'Batches and Stock', 'Sales and Billing', 'Sales History', 'Farmers', 'Suppliers', 'Alerts'],
       inspector: ['Products', 'Batches and Stock', 'Sales History', 'Licenses', 'Alerts', 'Reports']
     };
-  const links = {
-  'Products': '/products.html',
-  'Suppliers': '/suppliers.html',
-  'Batches and Stock': '/batches.html',
-  'Farmers': '/farmers.html',
-  'Sales and Billing': '/billing.html',
-  'Sales History': '/sales.html'
-};
+    const links = {
+      'Products': '/products.html',
+      'Suppliers': '/suppliers.html',
+      'Batches and Stock': '/batches.html',
+      'Farmers': '/farmers.html',
+      'Sales and Billing': '/billing.html',
+      'Sales History': '/sales.html',
+      'Licenses': '/licenses.html',
+      'Alerts': '/alerts.html'
+    };
 
     const token = localStorage.getItem('token');
-    if (!token) window.location.href = '/login.html';
+    if (!token) location.href = '/login.html';
+
+    function addAlertCount() {
+      fetch('/api/alerts', { headers: { Authorization: 'Bearer ' + token } })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => {
+          if (!d || !d.summary || !d.summary.total) return;
+          const tile = [...document.querySelectorAll('.tile')].find(t => t.firstChild && t.firstChild.textContent === 'Alerts');
+          if (!tile) return;
+          const s = document.createElement('div');
+          s.textContent = d.summary.total + ' need attention';
+          s.style.cssText = 'margin-top:8px;font-size:12px;color:#b00020;font-weight:bold';
+          tile.append(s);
+        })
+        .catch(() => {});
+    }
 
     fetch('/api/auth/me', { headers: { Authorization: 'Bearer ' + token } })
-      .then(r => { if (!r.ok) throw new Error(); return r.json(); })
+      .then(r => { if (!r.ok) throw new Error('Session expired'); return r.json(); })
       .then(user => {
         document.getElementById('name').textContent = user.name;
         document.getElementById('role').textContent = user.role;
         const menu = document.getElementById('menu');
-        menus[user.role].forEach(item => {
+        (menus[user.role] || []).forEach(item => {
           const a = document.createElement('a');
           a.className = 'tile';
           a.href = links[item] || '#';
-          a.textContent = item;
+          a.append(document.createTextNode(item));
           menu.appendChild(a);
         });
+        addAlertCount();
       })
-      .catch(() => { localStorage.clear(); window.location.href = '/login.html'; });
+      .catch(() => { localStorage.clear(); location.href = '/login.html'; });
 
     document.getElementById('logout').addEventListener('click', () => {
       localStorage.clear();
-      window.location.href = '/login.html';
+      location.href = '/login.html';
     });
   </script>
 </body>

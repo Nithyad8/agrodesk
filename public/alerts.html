@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AgroDesk - Alerts</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; background: #f1f5ee; }
+    header { background: #2e6b34; color: #fff; padding: 14px 24px; display: flex;
+             justify-content: space-between; align-items: center; }
+    header a { color: #fff; text-decoration: none; }
+    main { padding: 24px; max-width: 1000px; margin: auto; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
+    .card { background: #fff; border-radius: 10px; padding: 14px; text-align: center; cursor: pointer;
+            box-shadow: 0 1px 6px rgba(0,0,0,.08); border: 2px solid transparent; }
+    .card.active { border-color: #2e6b34; }
+    .card .n { font-size: 28px; font-weight: bold; }
+    .card .l { font-size: 13px; color: #555; }
+    .critical .n { color: #b00020; } .high .n { color: #c25100; }
+    .medium .n { color: #a07400; } .low .n { color: #17623a; }
+    .box { background: #fff; padding: 18px; border-radius: 10px; margin-bottom: 20px;
+           box-shadow: 0 1px 6px rgba(0,0,0,.08); }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    select, button { padding: 9px 12px; border-radius: 6px; border: 1px solid #bbb; }
+    button { background: #2e6b34; color: #fff; border: 0; cursor: pointer; }
+    .alert { background: #fff; border-radius: 8px; padding: 12px 14px; margin-bottom: 10px;
+             box-shadow: 0 1px 4px rgba(0,0,0,.08); border-left: 6px solid #888; }
+    .alert.critical { border-left-color: #b00020; } .alert.high { border-left-color: #e0731a; }
+    .alert.medium { border-left-color: #e0b100; } .alert.low { border-left-color: #2e9d57; }
+    .tag { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin-right: 6px; background: #eee; }
+    .tag.critical { background: #fde0e0; color: #8a1010; } .tag.high { background: #ffe0c7; color: #8a3a00; }
+    .tag.medium { background: #fff0cc; color: #7a5200; } .tag.low { background: #e3f1e4; color: #2e6b34; }
+    .alert a { float: right; font-size: 13px; }
+    #msg { color: #b00020; min-height: 20px; margin-bottom: 8px; }
+    .empty { text-align: center; color: #2e6b34; padding: 24px; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <header><strong>AgroDesk - Alerts</strong><a href="/dashboard.html">Back to dashboard</a></header>
+  <main>
+    <div id="msg"></div>
+    <div class="cards">
+      <div class="card critical" data-level="critical"><div class="n" id="nCritical">0</div><div class="l">Critical</div></div>
+      <div class="card high" data-level="high"><div class="n" id="nHigh">0</div><div class="l">High</div></div>
+      <div class="card medium" data-level="medium"><div class="n" id="nMedium">0</div><div class="l">Medium</div></div>
+      <div class="card low" data-level="low"><div class="n" id="nLow">0</div><div class="l">Low</div></div>
+    </div>
+    <div class="box">
+      <div class="row">
+        <select id="typeFilter">
+          <option value="">All alert types</option>
+          <option value="expired">Expired stock</option>
+          <option value="near_expiry">Near expiry</option>
+          <option value="low_stock">Low or out of stock</option>
+          <option value="license">License renewals</option>
+          <option value="recall">Batch recalls</option>
+        </select>
+        <button id="refresh">Refresh</button>
+        <span id="count"></span>
+      </div>
+    </div>
+    <div id="list"></div>
+  </main>
+  <script>
+    const token = localStorage.getItem('token');
+    if (!token) location.href = '/login.html';
+    const $ = (id) => document.getElementById(id);
+    const TYPE = { expired: 'Expired stock', near_expiry: 'Near expiry', low_stock: 'Stock level',
+                   license: 'License', recall: 'Recall' };
+    const LEVEL = { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low' };
+    let data = { summary: {}, alerts: [] }, levelFilter = '';
+
+    async function load() {
+      try {
+        const res = await fetch('/api/alerts', { headers: { Authorization: 'Bearer ' + token } });
+        if (res.status === 401) { localStorage.clear(); location.href = '/login.html'; return; }
+        const text = await res.text();
+        try { data = JSON.parse(text); }
+        catch (e) { throw new Error('Server sent HTML, not JSON (status ' + res.status + ')'); }
+        if (!res.ok) throw new Error(data.message || 'Something went wrong');
+        $('msg').textContent = '';
+        $('nCritical').textContent = data.summary.critical;
+        $('nHigh').textContent = data.summary.high;
+        $('nMedium').textContent = data.summary.medium;
+        $('nLow').textContent = data.summary.low;
+        render();
+      } catch (e) { $('msg').textContent = e.message; }
+    }
+
+    function render() {
+      const type = $('typeFilter').value;
+      const list = data.alerts.filter(a => (!type || a.type === type) && (!levelFilter || a.level === levelFilter));
+      $('count').textContent = list.length + ' of ' + data.alerts.length + ' alerts shown';
+      const box = $('list'); box.innerHTML = '';
+      if (!list.length) {
+        const d = document.createElement('div'); d.className = 'empty';
+        d.textContent = data.alerts.length ? 'No alerts match this filter' : 'All clear. Nothing needs attention.';
+        box.append(d); return;
+      }
+      list.forEach(a => {
+        const d = document.createElement('div'); d.className = 'alert ' + a.level;
+        const link = document.createElement('a'); link.href = a.link; link.textContent = 'View';
+        const lv = document.createElement('span'); lv.className = 'tag ' + a.level; lv.textContent = LEVEL[a.level];
+        const ty = document.createElement('span'); ty.className = 'tag'; ty.textContent = TYPE[a.type];
+        const title = document.createElement('strong'); title.textContent = a.title;
+        const msg = document.createElement('div'); msg.style.marginTop = '6px'; msg.textContent = a.message;
+        const head = document.createElement('div'); head.append(lv, ty, title, link);
+        d.append(head, msg); box.append(d);
+      });
+    }
+
+    document.querySelectorAll('.card').forEach(c => c.addEventListener('click', () => {
+      levelFilter = levelFilter === c.dataset.level ? '' : c.dataset.level;
+      document.querySelectorAll('.card').forEach(x => x.classList.toggle('active', x.dataset.level === levelFilter));
+      render();
+    }));
+    $('typeFilter').addEventListener('change', render);
+    $('refresh').addEventListener('click', load);
+    load();
+  </script>
+</body>
+</html>

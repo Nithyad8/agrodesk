@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AgroDesk - Licenses</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; background: #f1f5ee; }
+    header { background: #2e6b34; color: #fff; padding: 14px 24px; display: flex;
+             justify-content: space-between; align-items: center; }
+    header a { color: #fff; text-decoration: none; }
+    main { padding: 24px; max-width: 1200px; margin: auto; }
+    .box { background: #fff; padding: 18px; border-radius: 10px; margin-bottom: 20px;
+           box-shadow: 0 1px 6px rgba(0,0,0,.08); }
+    h3 { margin-top: 0; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+    .field { flex: 1; min-width: 160px; }
+    label { font-size: 12px; color: #555; display: block; margin-bottom: 3px; }
+    input, select { padding: 9px; border: 1px solid #bbb; border-radius: 6px; width: 100%; box-sizing: border-box; }
+    button { padding: 8px 12px; border: 0; border-radius: 6px; background: #2e6b34; color: #fff; cursor: pointer; margin-right: 4px; }
+    button.grey { background: #777; } button.red { background: #b00020; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 9px; border-bottom: 1px solid #e2e2e2; font-size: 14px; }
+    th { background: #e3f1e4; }
+    .tag { display: inline-block; padding: 2px 9px; border-radius: 10px; font-size: 12px; }
+    .valid { background: #e3f1e4; color: #2e6b34; }
+    .approaching { background: #cfeedd; color: #17623a; }
+    .soon { background: #fff0cc; color: #7a5200; }
+    .urgent { background: #ffe0c7; color: #8a3a00; }
+    .expired { background: #fde0e0; color: #8a1010; }
+    #msg { min-height: 20px; margin: 8px 0; font-size: 14px; }
+    .ok { color: #2e6b34; } .err { color: #b00020; }
+    dl { display: grid; grid-template-columns: 170px 1fr; gap: 6px 12px; margin: 0 0 14px; }
+    dt { color: #666; } dd { margin: 0; font-weight: bold; }
+    .item { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid #eee; }
+    .item input { width: auto; }
+    .alertline { padding: 10px; border-radius: 8px; margin-bottom: 12px; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <header><strong>AgroDesk - Licenses</strong><a href="/dashboard.html">Back to dashboard</a></header>
+  <main>
+    <div class="box" id="formBox" style="display:none">
+      <h3 id="formTitle">Add license</h3>
+      <form id="form">
+        <div class="row">
+          <div class="field"><label>License type</label>
+            <input id="type" list="types" required placeholder="For example Fertilizer license">
+            <datalist id="types">
+              <option value="Fertilizer license"><option value="Pesticide license">
+              <option value="Seed license"><option value="Shop registration">
+              <option value="GST registration">
+            </datalist></div>
+          <div class="field"><label>License number</label><input id="license_no" required></div>
+          <div class="field"><label>Held by</label><select id="supplier_id"></select></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Issue date (optional)</label><input id="issue_date" type="date"></div>
+          <div class="field"><label>Expiry date</label><input id="expiry_date" type="date" required></div>
+        </div>
+        <button type="submit">Save license</button>
+        <button type="button" class="grey" id="cancelBtn">Clear</button>
+      </form>
+    </div>
+
+    <div id="msg"></div>
+
+    <div class="box">
+      <div class="row">
+        <div class="field" style="flex:2"><input id="search" placeholder="Search by type, number or holder"></div>
+        <div class="field">
+          <select id="levelFilter">
+            <option value="">All licenses</option>
+            <option value="expired">Expired</option>
+            <option value="urgent">Urgent (7 days or less)</option>
+            <option value="soon">Renewal required (30 days or less)</option>
+            <option value="approaching">Renewal approaching (60 days or less)</option>
+            <option value="valid">Valid</option>
+          </select>
+        </div>
+      </div>
+      <table>
+        <thead><tr><th>Type</th><th>Number</th><th>Held by</th><th>Issued</th><th>Expiry</th>
+          <th>Days left</th><th>Status</th><th>Renewal</th><th>Documents</th><th></th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+
+    <div class="box" id="detail" style="display:none">
+      <h3 id="dTitle"></h3>
+      <div id="dAlert" class="alertline"></div>
+      <dl id="dFields"></dl>
+
+      <div id="renewBox" style="display:none">
+        <h3>Update renewal</h3>
+        <div class="row">
+          <div class="field"><label>Renewal status</label>
+            <select id="rStatus">
+              <option value="not_started">Not started</option>
+              <option value="in_progress">In progress</option>
+              <option value="submitted">Submitted</option>
+              <option value="approved">Approved</option>
+            </select></div>
+          <div class="field" id="rDateField"><label id="rDateLabel">Date</label><input id="rDate" type="date"></div>
+          <div class="field" id="rExpField"><label>New expiry date</label><input id="rNewExpiry" type="date"></div>
+        </div>
+        <button id="renewBtn">Update renewal</button>
+      </div>
+
+      <h3 style="margin-top:20px">Renewal checklist</h3>
+      <div id="checklist"></div>
+      <div class="row" id="addItemRow" style="margin-top:10px">
+        <div class="field" style="flex:3"><input id="newItem" placeholder="Add another document"></div>
+        <div class="field"><button id="addItemBtn">Add item</button></div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    const token = localStorage.getItem('token');
+    const user = JSON.parse(localStorage.getItem('user') || 'null');
+    if (!token || !user) location.href = '/login.html';
+    if (user && user.role === 'staff') location.href = '/dashboard.html';
+    const isOwner = user && user.role === 'owner';
+
+    const $ = (id) => document.getElementById(id);
+    const show = (t, ok) => { $('msg').textContent = t; $('msg').className = ok ? 'ok' : 'err'; };
+    const LEVEL = { valid: 'Valid', approaching: 'Renewal approaching', soon: 'Renewal required',
+                    urgent: 'Urgent', expired: 'Expired' };
+    const RSTATUS = { not_started: 'Not started', in_progress: 'In progress', submitted: 'Submitted', approved: 'Approved' };
+    let editingId = null, openId = null;
+
+    async function api(url, options = {}) {
+      const res = await fetch(url, { ...options,
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token } });
+      if (res.status === 401) { localStorage.clear(); location.href = '/login.html'; }
+      const text = await res.text();
+      let data;
+      try { data = JSON.parse(text); }
+      catch (e) { throw new Error('Server sent HTML, not JSON (status ' + res.status + ') for ' + url); }
+      if (!res.ok) throw new Error(data.message || 'Something went wrong');
+      return data;
+    }
+
+    function btn(text, cls, fn) {
+      const b = document.createElement('button');
+      b.textContent = text; if (cls) b.className = cls; b.onclick = fn; return b;
+    }
+    function tag(level) {
+      const s = document.createElement('span'); s.className = 'tag ' + level; s.textContent = LEVEL[level]; return s;
+    }
+
+    async function load() {
+      const q = new URLSearchParams({ search: $('search').value.trim(), level: $('levelFilter').value });
+      try {
+        const list = await api('/api/licenses?' + q);
+        const body = $('rows'); body.innerHTML = '';
+        if (!list.length) { const td = body.insertRow().insertCell(); td.colSpan = 10; td.textContent = 'No licenses found'; return; }
+        list.forEach(l => {
+          const tr = body.insertRow();
+          [l.type, l.license_no, l.supplier_name || 'Shop', l.issue_date || '-', l.expiry_date, l.days_left]
+            .forEach(v => { tr.insertCell().textContent = v; });
+          tr.insertCell().append(tag(l.level));
+          tr.insertCell().textContent = RSTATUS[l.renewal_status];
+          tr.insertCell().textContent = l.items_done + '/' + l.items_total;
+          const a = tr.insertCell();
+          a.append(btn('Details', 'grey', () => openDetail(l.license_id)));
+          if (isOwner) {
+            a.append(btn('Edit', '', () => startEdit(l)));
+            a.append(btn('Delete', 'red', () => remove(l)));
+          }
+        });
+      } catch (e) { show(e.message, false); }
+    }
+
+    function row(k, v) {
+      const dt = document.createElement('dt'); dt.textContent = k;
+      const dd = document.createElement('dd'); dd.textContent = v;
+      $('dFields').append(dt, dd);
+    }
+
+    async function openDetail(id) {
+      try {
+        const l = await api('/api/licenses/' + id);
+        openId = id;
+        $('dTitle').textContent = l.type + ' - ' + l.license_no;
+        const a = $('dAlert');
+        a.textContent = l.message;
+        a.className = 'alertline ' + l.level;
+        $('dFields').innerHTML = '';
+        row('Held by', l.supplier_name || 'Shop');
+        row('Issue date', l.issue_date || '-');
+        row('Expiry date', l.expiry_date + ' (' + l.days_left + ' days left)');
+        row('Renewal status', RSTATUS[l.renewal_status]);
+        row('Renewal submitted', l.renewal_submitted_date || '-');
+        row('Renewal approved', l.renewal_approved_date || '-');
+
+        $('renewBox').style.display = isOwner ? 'block' : 'none';
+        $('addItemRow').style.display = isOwner ? 'flex' : 'none';
+        $('rStatus').value = l.renewal_status;
+        $('rDate').value = new Date().toLocaleDateString('en-CA');
+        $('rNewExpiry').value = '';
+        syncRenewFields();
+
+        const box = $('checklist'); box.innerHTML = '';
+        if (!l.checklist.length) box.textContent = 'No documents on the checklist';
+        l.checklist.forEach(c => {
+          const d = document.createElement('div'); d.className = 'item';
+          const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = !!c.is_done;
+          cb.disabled = !isOwner;
+          cb.onchange = async () => {
+            try {
+              await api('/api/licenses/' + id + '/checklist/' + c.checklist_id,
+                { method: 'PUT', body: JSON.stringify({ is_done: cb.checked }) });
+              openDetail(id); load();
+            } catch (e) { show(e.message, false); cb.checked = !cb.checked; }
+          };
+          const name = document.createElement('span'); name.textContent = c.item_name; name.style.flex = '1';
+          d.append(cb, name);
+          if (isOwner) d.append(btn('Remove', 'red', async () => {
+            try { await api('/api/licenses/' + id + '/checklist/' + c.checklist_id, { method: 'DELETE' }); openDetail(id); load(); }
+            catch (e) { show(e.message, false); }
+          }));
+          box.append(d);
+        });
+        $('detail').style.display = 'block';
+        $('detail').scrollIntoView({ behavior: 'smooth' });
+      } catch (e) { show(e.message, false); }
+    }
+
+    function syncRenewFields() {
+      const s = $('rStatus').value;
+      $('rDateField').style.display = (s === 'submitted' || s === 'approved') ? 'block' : 'none';
+      $('rExpField').style.display = s === 'approved' ? 'block' : 'none';
+      $('rDateLabel').textContent = s === 'approved' ? 'Approved on' : 'Submitted on';
+    }
+    $('rStatus').addEventListener('change', syncRenewFields);
+
+    $('renewBtn').addEventListener('click', async () => {
+      try {
+        const r = await api('/api/licenses/' + openId + '/renewal', { method: 'PUT',
+          body: JSON.stringify({ status: $('rStatus').value, date: $('rDate').value, new_expiry_date: $('rNewExpiry').value }) });
+        show(r.message, true); openDetail(openId); load();
+      } catch (e) { show(e.message, false); }
+    });
+
+    $('addItemBtn').addEventListener('click', async () => {
+      try {
+        await api('/api/licenses/' + openId + '/checklist', { method: 'POST',
+          body: JSON.stringify({ item_name: $('newItem').value }) });
+        $('newItem').value = ''; openDetail(openId); load();
+      } catch (e) { show(e.message, false); }
+    });
+
+    function startEdit(l) {
+      editingId = l.license_id; $('formTitle').textContent = 'Edit license';
+      $('type').value = l.type; $('license_no').value = l.license_no;
+      $('supplier_id').value = l.supplier_id ?? '';
+      $('issue_date').value = l.issue_date || ''; $('expiry_date').value = l.expiry_date;
+      window.scrollTo(0, 0);
+    }
+    function clearForm() { editingId = null; $('form').reset(); $('formTitle').textContent = 'Add license'; }
+
+    async function remove(l) {
+      if (!confirm('Delete license ' + l.license_no + ' and its checklist?')) return;
+      try {
+        show((await api('/api/licenses/' + l.license_id, { method: 'DELETE' })).message, true);
+        if (openId === l.license_id) $('detail').style.display = 'none';
+        load();
+      } catch (e) { show(e.message, false); }
+    }
+
+    $('form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const body = JSON.stringify({ type: $('type').value, license_no: $('license_no').value,
+        supplier_id: $('supplier_id').value, issue_date: $('issue_date').value, expiry_date: $('expiry_date').value });
+      try {
+        const r = editingId
+          ? await api('/api/licenses/' + editingId, { method: 'PUT', body })
+          : await api('/api/licenses', { method: 'POST', body });
+        show(r.message, true); clearForm(); load();
+      } catch (err) { show(err.message, false); }
+    });
+    $('cancelBtn').addEventListener('click', clearForm);
+    $('search').addEventListener('input', load);
+    $('levelFilter').addEventListener('change', load);
+
+    async function init() {
+      if (isOwner) {
+        $('formBox').style.display = 'block';
+        const sel = $('supplier_id');
+        sel.add(new Option('Shop (own license)', ''));
+        (await api('/api/suppliers')).forEach(s => sel.add(new Option(s.name, s.supplier_id)));
+      }
+      load();
+    }
+    init().catch(e => show(e.message, false));
+  </script>
+</body>
+</html>

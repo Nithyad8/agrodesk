@@ -27,6 +27,8 @@ app.use('/api/suppliers', require('./routes/suppliers'));
 app.use('/api/batches', require('./routes/batches'));
 app.use('/api/farmers', require('./routes/farmers'));
 app.use('/api/sales', require('./routes/sales'));
+app.use('/api/licenses', require('./routes/licenses'));
+app.use('/api/alerts', require('./routes/alerts'));
 
 app.get('/api/test/owner-only', authenticate, authorize('owner'), (req, res) => {
   res.json({ message: 'Hello owner, you have access' });
