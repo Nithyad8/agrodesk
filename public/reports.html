@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AgroDesk - Reports</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; background: #f1f5ee; }
+    header { background: #2e6b34; color: #fff; padding: 14px 24px; display: flex;
+             justify-content: space-between; align-items: center; }
+    header a { color: #fff; text-decoration: none; }
+    main { padding: 24px; max-width: 1300px; margin: auto; }
+    .box { background: #fff; padding: 18px; border-radius: 10px; margin-bottom: 20px;
+           box-shadow: 0 1px 6px rgba(0,0,0,.08); }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+    .field { flex: 1; min-width: 150px; }
+    label { font-size: 12px; color: #555; display: block; margin-bottom: 3px; }
+    input, select { padding: 9px; border: 1px solid #bbb; border-radius: 6px; width: 100%; box-sizing: border-box; }
+    button { padding: 9px 14px; border: 0; border-radius: 6px; background: #2e6b34; color: #fff; cursor: pointer; }
+    button.grey { background: #777; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 16px; }
+    .card { background: #f1f5ee; border-radius: 8px; padding: 12px; }
+    .card .v { font-size: 20px; font-weight: bold; color: #2e6b34; }
+    .card .l { font-size: 12px; color: #555; }
+    .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 16px; margin-bottom: 16px; }
+    .chartbox { position: relative; height: 300px; }
+    .tablewrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 8px; border-bottom: 1px solid #e2e2e2; font-size: 13px; }
+    th { background: #e3f1e4; }
+    td.r, th.r { text-align: right; }
+    tr.bad td { background: #fde8e8; } tr.warn td { background: #fff6dc; }
+    #msg { min-height: 20px; margin: 8px 0; font-size: 14px; color: #b00020; }
+    .note { font-size: 13px; color: #666; margin-bottom: 12px; }
+    @media print {
+      body { background: #fff; }
+      body * { visibility: hidden; }
+      #output, #output * { visibility: visible; }
+      #output { position: absolute; left: 0; top: 0; width: 100%; box-shadow: none; }
+    }
+  </style>
+</head>
+<body>
+  <header><strong>AgroDesk - Reports</strong><a href="/dashboard.html">Back to dashboard</a></header>
+  <main>
+    <div class="box">
+      <div class="row">
+        <div class="field" style="flex:2"><label>Report</label><select id="report"></select></div>
+        <div class="field f-dates"><label>From</label><input id="from" type="date"></div>
+        <div class="field f-dates"><label>To</label><input id="to" type="date"></div>
+        <div class="field f-days"><label>Expiring within (days)</label><input id="days" type="number" min="1" max="365" value="90"></div>
+        <div class="field f-trend"><label>Category</label>
+          <select id="category"><option value="">All categories</option><option value="seed">Seed</option>
+            <option value="fertilizer">Fertilizer</option><option value="pesticide">Pesticide</option></select></div>
+        <div class="field f-trend"><label>Monthly chart for</label><select id="product"><option value="">Top 5 products</option></select></div>
+        <div><button id="runBtn">Show report</button></div>
+      </div>
+    </div>
+
+    <div id="msg"></div>
+
+    <div class="box" id="output" style="display:none">
+      <h3 id="title" style="margin-top:0"></h3>
+      <div class="note" id="period"></div>
+      <div class="cards" id="cards"></div>
+      <div class="note" id="note"></div>
+      <div class="charts" id="charts" style="display:none">
+        <div class="chartbox"><canvas id="c1"></canvas></div>
+        <div class="chartbox"><canvas id="c2"></canvas></div>
+      </div>
+      <div class="tablewrap">
+        <table><thead id="head"></thead><tbody id="body"></tbody></table>
+      </div>
+      <div style="margin-top:14px" class="noprint">
+        <button id="csvBtn">Export CSV (Excel)</button>
+        <button class="grey" onclick="window.print()">Print or save as PDF</button>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    const token = localStorage.getItem('token');
+    if (!token) location.href = '/login.html';
+    const $ = (id) => document.getElementById(id);
+    const show = (t) => { $('msg').textContent = t || ''; };
+    const COLORS = ['#2e6b34', '#c25100', '#1f6fb2', '#a07400', '#8a3a9c'];
+    let metas = {}, lastData = null, charts = [];
+
+    const dateStr = (back) => { const d = new Date(); d.setDate(d.getDate() - back); return d.toLocaleDateString('en-CA'); };
+    const money = (v) => '\u20B9' + Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    function fmt(type, v) {
+      if (v === null || v === undefined || v === '') return '-';
+      if (type === 'money') return money(v);
+      if (type === 'number') return Number(v).toLocaleString('en-IN');
+      return String(v);
+    }
+
+    async function api(url) {
+      const res = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
+      if (res.status === 401) { localStorage.clear(); location.href = '/login.html'; }
+      const text = await res.text();
+      let data;
+      try { data = JSON.parse(text); }
+      catch (e) { throw new Error('Server sent HTML, not JSON (status ' + res.status + ') for ' + url); }
+      if (!res.ok) throw new Error(data.message || 'Something went wrong');
+      return data;
+    }
+
+    function onChange() {
+      const m = metas[$('report').value] || {};
+      document.querySelectorAll('.f-dates').forEach(e => e.style.display = m.dates ? 'block' : 'none');
+      document.querySelectorAll('.f-days').forEach(e => e.style.display = m.days ? 'block' : 'none');
+      document.querySelectorAll('.f-trend').forEach(e => e.style.display = m.trend ? 'block' : 'none');
+      $('from').value = dateStr(m.trend ? 365 : 30);
+      $('to').value = dateStr(0);
+    }
+
+    async function run() {
+      show('');
+      const id = $('report').value;
+      const m = metas[id];
+      const q = new URLSearchParams();
+      if (m.dates) { q.set('from', $('from').value); q.set('to', $('to').value); }
+      if (m.days) q.set('days', $('days').value);
+      if (m.trend) { q.set('category', $('category').value); q.set('product_id', $('product').value); }
+      try {
+        lastData = await api('/api/reports/' + id + '?' + q);
+        render(lastData);
+      } catch (e) { show(e.message); $('output').style.display = 'none'; }
+    }
+
+    function render(d) {
+      $('title').textContent = d.title;
+      $('period').textContent = d.period ? 'Period: ' + d.period.from + ' to ' + d.period.to : 'Current data as of today';
+      $('note').textContent = d.note || '';
+
+      const cards = $('cards'); cards.innerHTML = '';
+      d.summary.forEach(s => {
+        const c = document.createElement('div'); c.className = 'card';
+        const v = document.createElement('div'); v.className = 'v'; v.textContent = fmt(s.type, s.value);
+        const l = document.createElement('div'); l.className = 'l'; l.textContent = s.label;
+        c.append(v, l); cards.append(c);
+      });
+
+      const head = $('head'); head.innerHTML = '';
+      const hr = head.insertRow();
+      d.columns.forEach(c => { const th = document.createElement('th'); th.textContent = c.label;
+        if (c.type !== 'text') th.className = 'r'; hr.append(th); });
+
+      const body = $('body'); body.innerHTML = '';
+      if (!d.rows.length) {
+        const td = body.insertRow().insertCell(); td.colSpan = d.columns.length; td.textContent = 'No data for this selection';
+      }
+      d.rows.forEach(r => {
+        const tr = body.insertRow();
+        if (r._level) tr.className = r._level;
+        d.columns.forEach(c => {
+          const td = tr.insertCell(); td.textContent = fmt(c.type, r[c.key]);
+          if (c.type !== 'text') td.className = 'r';
+        });
+      });
+
+      drawCharts(d);
+      $('output').style.display = 'block';
+    }
+
+    function drawCharts(d) {
+      charts.forEach(c => c.destroy()); charts = [];
+      const box = $('charts');
+      if (!d.chart) { box.style.display = 'none'; return; }
+      if (typeof Chart === 'undefined') { box.style.display = 'none'; show('Charts could not load (internet needed). The table still works.'); return; }
+      box.style.display = 'grid';
+      const top = d.rows.filter(r => r.qty_sold > 0).slice(0, 10);
+      charts.push(new Chart($('c1'), {
+        type: 'bar',
+        data: { labels: top.map(r => r.product), datasets: [{ label: 'Quantity sold', data: top.map(r => r.qty_sold), backgroundColor: '#2e6b34' }] },
+        options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false }, title: { display: true, text: 'Top products by quantity sold' } } }
+      }));
+      charts.push(new Chart($('c2'), {
+        type: 'line',
+        data: { labels: d.chart.labels, datasets: d.chart.series.map((s, i) => ({
+          label: s.name, data: s.values, borderColor: COLORS[i % COLORS.length],
+          backgroundColor: COLORS[i % COLORS.length], tension: 0.2 })) },
+        options: { responsive: true, maintainAspectRatio: false,
+          plugins: { title: { display: true, text: 'Quantity sold by month' } }, scales: { y: { beginAtZero: true } } }
+      }));
+    }
+
+    function csvCell(v, col) {
+      if (v === null || v === undefined) return '""';
+      let s = col.type === 'money' ? Number(v).toFixed(2) : String(v);
+      if (col.type === 'text' && /^[=+\-@\t\r]/.test(s)) s = "'" + s;
+      return '"' + s.replace(/"/g, '""') + '"';
+    }
+    function exportCsv() {
+      if (!lastData) return;
+      const d = lastData;
+      const lines = [
+        '"' + d.title.replace(/"/g, '""') + '"',
+        '"' + (d.period ? 'Period: ' + d.period.from + ' to ' + d.period.to : 'Current data') + '"', '',
+        d.columns.map(c => '"' + c.label.replace(/"/g, '""') + '"').join(','),
+        ...d.rows.map(r => d.columns.map(c => csvCell(r[c.key], c)).join(',')),
+      ];
+      const blob = new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = $('report').value + '-report-' + dateStr(0) + '.csv';
+      document.body.append(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    }
+
+    async function init() {
+      const list = await api('/api/reports');
+      list.forEach(r => { metas[r.id] = r; $('report').add(new Option(r.label, r.id)); });
+      if (metas.trend) {
+        try { (await api('/api/products')).forEach(p => $('product').add(new Option(p.name, p.product_id))); }
+        catch (e) {}
+      }
+      onChange();
+    }
+    $('report').addEventListener('change', onChange);
+    $('runBtn').addEventListener('click', run);
+    $('csvBtn').addEventListener('click', exportCsv);
+    init().catch(e => show(e.message));
+  </script>
+</body>
+</html>

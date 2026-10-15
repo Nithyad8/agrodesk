@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AgroDesk - Users</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; background: #f1f5ee; }
+    header { background: #2e6b34; color: #fff; padding: 14px 24px; display: flex;
+             justify-content: space-between; align-items: center; }
+    header a { color: #fff; text-decoration: none; }
+    main { padding: 24px; max-width: 1000px; margin: auto; }
+    .box { background: #fff; padding: 18px; border-radius: 10px; margin-bottom: 20px;
+           box-shadow: 0 1px 6px rgba(0,0,0,.08); }
+    h3 { margin-top: 0; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+    .field { flex: 1; min-width: 170px; }
+    label { font-size: 12px; color: #555; display: block; margin-bottom: 3px; }
+    input, select { padding: 9px; border: 1px solid #bbb; border-radius: 6px; width: 100%; box-sizing: border-box; }
+    button { padding: 8px 12px; border: 0; border-radius: 6px; background: #2e6b34; color: #fff; cursor: pointer; margin-right: 4px; }
+    button.grey { background: #777; } button.red { background: #b00020; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 9px; border-bottom: 1px solid #e2e2e2; font-size: 14px; }
+    th { background: #e3f1e4; }
+    .tag { display: inline-block; padding: 2px 9px; border-radius: 10px; font-size: 12px; background: #e3f1e4; color: #2e6b34; }
+    .you { background: #fff0cc; color: #7a5200; margin-left: 6px; }
+    #msg { min-height: 20px; margin: 8px 0; font-size: 14px; }
+    .ok { color: #2e6b34; } .err { color: #b00020; }
+  </style>
+</head>
+<body>
+  <header><strong>AgroDesk - Users</strong><a href="/dashboard.html">Back to dashboard</a></header>
+  <main>
+    <div class="box">
+      <h3 id="formTitle">Add user</h3>
+      <form id="form" autocomplete="off">
+        <div class="row">
+          <div class="field"><label>Full name</label><input id="name" required maxlength="100"></div>
+          <div class="field"><label>Username</label><input id="username" required maxlength="30" placeholder="Letters, numbers, underscore"></div>
+          <div class="field"><label>Role</label>
+            <select id="role" required>
+              <option value="">Choose role</option>
+              <option value="owner">Owner</option>
+              <option value="staff">Staff</option>
+              <option value="inspector">Inspector</option>
+            </select></div>
+          <div class="field"><label>Password</label><input id="password" type="password" autocomplete="new-password"></div>
+        </div>
+        <button type="submit">Save user</button>
+        <button type="button" class="grey" id="cancelBtn">Clear</button>
+      </form>
+    </div>
+
+    <div id="msg"></div>
+
+    <div class="box">
+      <table>
+        <thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Bills created</th><th></th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </main>
+
+  <script>
+    const token = localStorage.getItem('token');
+    const me = JSON.parse(localStorage.getItem('user') || 'null');
+    if (!token || !me) location.href = '/login.html';
+    if (me && me.role !== 'owner') location.href = '/dashboard.html';
+
+    const $ = (id) => document.getElementById(id);
+    const show = (t, ok) => { $('msg').textContent = t; $('msg').className = ok ? 'ok' : 'err'; };
+    const ROLE = { owner: 'Owner', staff: 'Staff', inspector: 'Inspector' };
+    let list = [], editingId = null;
+
+    async function api(url, options = {}) {
+      const res = await fetch(url, { ...options,
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token } });
+      if (res.status === 401) { localStorage.clear(); location.href = '/login.html'; }
+      const text = await res.text();
+      let data;
+      try { data = JSON.parse(text); }
+      catch (e) { throw new Error('Server sent HTML, not JSON (status ' + res.status + ') for ' + url); }
+      if (!res.ok) throw new Error(data.message || 'Something went wrong');
+      return data;
+    }
+
+    function setMode(adding) {
+      $('password').required = adding;
+      $('password').placeholder = adding ? 'At least 8 characters' : 'Leave empty to keep current';
+    }
+
+    function btn(text, cls, fn) {
+      const b = document.createElement('button');
+      b.textContent = text; if (cls) b.className = cls; b.onclick = fn; return b;
+    }
+
+    async function load() {
+      try { list = await api('/api/users'); render(); } catch (e) { show(e.message, false); }
+    }
+
+    function render() {
+      const body = $('rows'); body.innerHTML = '';
+      list.forEach(u => {
+        const tr = body.insertRow();
+        const n = tr.insertCell(); n.textContent = u.name;
+        if (u.is_you) { const t = document.createElement('span'); t.className = 'tag you'; t.textContent = 'You'; n.append(t); }
+        tr.insertCell().textContent = u.username;
+        const r = tr.insertCell(); const rt = document.createElement('span'); rt.className = 'tag'; rt.textContent = ROLE[u.role]; r.append(rt);
+        tr.insertCell().textContent = u.bills;
+        const a = tr.insertCell();
+        a.append(btn('Edit', '', () => startEdit(u)));
+        if (!u.is_you) a.append(btn('Delete', 'red', () => remove(u)));
+      });
+    }
+
+    function startEdit(u) {
+      editingId = u.user_id; $('formTitle').textContent = 'Edit user';
+      $('name').value = u.name; $('username').value = u.username; $('role').value = u.role; $('password').value = '';
+      setMode(false); window.scrollTo(0, 0);
+    }
+    function clearForm() { editingId = null; $('form').reset(); $('formTitle').textContent = 'Add user'; setMode(true); }
+
+    async function remove(u) {
+      if (!confirm('Delete user ' + u.username + '?')) return;
+      try { show((await api('/api/users/' + u.user_id, { method: 'DELETE' })).message, true); load(); }
+      catch (e) { show(e.message, false); }
+    }
+
+    $('form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const body = JSON.stringify({ name: $('name').value, username: $('username').value,
+        role: $('role').value, password: $('password').value });
+      try {
+        const r = editingId
+          ? await api('/api/users/' + editingId, { method: 'PUT', body })
+          : await api('/api/users', { method: 'POST', body });
+        show(r.message, true); clearForm(); load();
+      } catch (err) { show(err.message, false); }
+    });
+    $('cancelBtn').addEventListener('click', clearForm);
+    setMode(true);
+    load();
+  </script>
+</body>
+</html>

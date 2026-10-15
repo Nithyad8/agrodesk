@@ -26,12 +26,20 @@ app.use('/api/products', require('./routes/products'));
 app.use('/api/suppliers', require('./routes/suppliers'));
 app.use('/api/batches', require('./routes/batches'));
 app.use('/api/farmers', require('./routes/farmers'));
+app.use('/api/public', require('./routes/public'));
 app.use('/api/sales', require('./routes/sales'));
 app.use('/api/licenses', require('./routes/licenses'));
 app.use('/api/alerts', require('./routes/alerts'));
+app.use('/api/recalls', require('./routes/recalls'));
+app.use('/api/users', require('./routes/users'));
+app.use('/api/reports', require('./routes/reports'));
 
 app.get('/api/test/owner-only', authenticate, authorize('owner'), (req, res) => {
   res.json({ message: 'Hello owner, you have access' });
+});
+
+app.use('/api', (req, res) => {
+  res.status(404).json({ message: 'API route not found: ' + req.method + ' ' + req.originalUrl });
 });
 
 const PORT = process.env.PORT || 3000;

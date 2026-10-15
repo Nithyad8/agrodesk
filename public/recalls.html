@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AgroDesk - Batch recall</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; background: #f1f5ee; }
+    header { background: #2e6b34; color: #fff; padding: 14px 24px; display: flex;
+             justify-content: space-between; align-items: center; }
+    header a { color: #fff; text-decoration: none; }
+    main { padding: 24px; max-width: 1200px; margin: auto; }
+    .box { background: #fff; padding: 18px; border-radius: 10px; margin-bottom: 20px;
+           box-shadow: 0 1px 6px rgba(0,0,0,.08); }
+    h3 { margin-top: 0; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+    .field { flex: 1; min-width: 180px; }
+    label { font-size: 12px; color: #555; display: block; margin-bottom: 3px; }
+    input, select { padding: 9px; border: 1px solid #bbb; border-radius: 6px; width: 100%; box-sizing: border-box; }
+    button { padding: 8px 12px; border: 0; border-radius: 6px; background: #2e6b34; color: #fff; cursor: pointer; margin-right: 4px; }
+    button.grey { background: #777; } button.red { background: #b00020; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 9px; border-bottom: 1px solid #e2e2e2; font-size: 14px; }
+    th { background: #e3f1e4; }
+    .tag { display: inline-block; padding: 2px 9px; border-radius: 10px; font-size: 12px; }
+    .open { background: #fde0e0; color: #8a1010; } .closed { background: #e3f1e4; color: #2e6b34; }
+    #msg { min-height: 20px; margin: 8px 0; font-size: 14px; }
+    .ok { color: #2e6b34; } .err { color: #b00020; }
+    dl { display: grid; grid-template-columns: 160px 1fr; gap: 6px 12px; margin: 0 0 14px; }
+    dt { color: #666; } dd { margin: 0; font-weight: bold; }
+    .notice { background: #fde0e0; color: #8a1010; padding: 10px; border-radius: 8px; margin-bottom: 12px; font-weight: bold; }
+    @media print {
+      body { background: #fff; }
+      body * { visibility: hidden; }
+      #detail, #detail * { visibility: visible; }
+      #detail { position: absolute; left: 0; top: 0; width: 100%; box-shadow: none; }
+      #detail button { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <header><strong>AgroDesk - Batch recall</strong><a href="/dashboard.html">Back to dashboard</a></header>
+  <main>
+    <div class="box" id="formBox" style="display:none">
+      <h3>Flag a batch for recall</h3>
+      <form id="form">
+        <div class="row">
+          <div class="field" style="flex:2"><label>Batch</label><select id="batch_id" required></select></div>
+          <div class="field" style="flex:3"><label>Reason</label>
+            <input id="reason" maxlength="255" required placeholder="For example failed quality test, wrong label"></div>
+        </div>
+        <button type="submit" class="red">Flag batch</button>
+      </form>
+    </div>
+
+    <div id="msg"></div>
+
+    <div class="box">
+      <div class="row">
+        <div class="field">
+          <select id="statusFilter">
+            <option value="">All recalls</option>
+            <option value="open">Open</option>
+            <option value="closed">Closed</option>
+          </select>
+        </div>
+      </div>
+      <table>
+        <thead><tr><th>Product</th><th>Batch</th><th>Supplier</th><th>Recalled on</th><th>Reason</th>
+          <th>Farmers</th><th>Sold</th><th>In stock</th><th>Status</th><th></th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+
+    <div class="box" id="detail" style="display:none">
+      <h3 id="dTitle"></h3>
+      <div class="notice" id="dNotice"></div>
+      <dl id="dFields"></dl>
+      <h3>Farmers who bought from this batch</h3>
+      <table>
+        <thead><tr><th>Date</th><th>Bill</th><th>Farmer</th><th>Phone</th><th>Village</th>
+          <th>Qty</th><th>Crop</th><th>Notice</th></tr></thead>
+        <tbody id="dRows"></tbody>
+      </table>
+      <div style="margin-top:12px"><button onclick="window.print()">Print list</button></div>
+    </div>
+  </main>
+
+  <script>
+    const token = localStorage.getItem('token');
+    const user = JSON.parse(localStorage.getItem('user') || 'null');
+    if (!token || !user) location.href = '/login.html';
+    const isOwner = user && user.role === 'owner';
+
+    const $ = (id) => document.getElementById(id);
+    const show = (t, ok) => { $('msg').textContent = t; $('msg').className = ok ? 'ok' : 'err'; };
+
+    async function api(url, options = {}) {
+      const res = await fetch(url, { ...options,
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token } });
+      if (res.status === 401) { localStorage.clear(); location.href = '/login.html'; }
+      const text = await res.text();
+      let data;
+      try { data = JSON.parse(text); }
+      catch (e) { throw new Error('Server sent HTML, not JSON (status ' + res.status + ') for ' + url); }
+      if (!res.ok) throw new Error(data.message || 'Something went wrong');
+      return data;
+    }
+
+    function btn(text, cls, fn) {
+      const b = document.createElement('button');
+      b.textContent = text; if (cls) b.className = cls; b.onclick = fn; return b;
+    }
+    function tag(status) {
+      const s = document.createElement('span');
+      s.className = 'tag ' + status; s.textContent = status === 'open' ? 'Open' : 'Closed'; return s;
+    }
+
+    async function load() {
+      try {
+        const list = await api('/api/recalls?status=' + encodeURIComponent($('statusFilter').value));
+        const body = $('rows'); body.innerHTML = '';
+        if (!list.length) { const td = body.insertRow().insertCell(); td.colSpan = 10; td.textContent = 'No recalls'; return; }
+        list.forEach(r => {
+          const tr = body.insertRow();
+          [r.product_name, r.batch_no, r.supplier_name, r.recall_date, r.reason, r.farmers_affected,
+           r.qty_sold + ' ' + r.unit, r.stock_left + ' ' + r.unit].forEach(v => { tr.insertCell().textContent = v; });
+          tr.insertCell().append(tag(r.status));
+          const a = tr.insertCell();
+          a.append(btn('View', 'grey', () => openDetail(r.recall_id)));
+          if (isOwner && r.status === 'open') a.append(btn('Close', '', () => closeRecall(r)));
+        });
+      } catch (e) { show(e.message, false); }
+    }
+
+    function row(k, v) {
+      const dt = document.createElement('dt'); dt.textContent = k;
+      const dd = document.createElement('dd'); dd.textContent = v;
+      $('dFields').append(dt, dd);
+    }
+
+    function noticeText(r, a) {
+      return 'Please verify product batch ' + r.batch_no + ' (' + r.product_name + ') purchased on ' +
+             a.sale_date + '. Reason: ' + r.reason + '.';
+    }
+
+    async function copyText(text) {
+      try { await navigator.clipboard.writeText(text); show('Message copied', true); }
+      catch (e) { prompt('Copy this message:', text); }
+    }
+
+    async function openDetail(id) {
+      try {
+        const r = await api('/api/recalls/' + id);
+        $('dTitle').textContent = r.product_name + ' - Batch ' + r.batch_no;
+        $('dNotice').textContent = (r.status === 'open' ? 'OPEN RECALL: ' : 'Closed recall: ') + r.reason;
+        $('dNotice').style.background = r.status === 'open' ? '#fde0e0' : '#e3f1e4';
+        $('dNotice').style.color = r.status === 'open' ? '#8a1010' : '#2e6b34';
+        $('dFields').innerHTML = '';
+        row('Supplier', r.supplier_name);
+        row('Recalled on', r.recall_date);
+        row('Expiry date', r.expiry_date);
+        row('Sold so far', r.qty_sold + ' ' + r.unit + ' to ' + r.farmers_affected + ' farmer(s)');
+        row('Still in stock', r.stock_left + ' ' + r.unit);
+
+        const body = $('dRows'); body.innerHTML = '';
+        if (!r.affected.length) { const td = body.insertRow().insertCell(); td.colSpan = 8; td.textContent = 'No sales from this batch yet'; }
+        r.affected.forEach(a => {
+          const tr = body.insertRow();
+          [a.sale_date, '#' + a.sale_id, a.farmer_name, a.phone || '-', a.village || '-',
+           a.quantity + ' ' + r.unit, a.crop || '-'].forEach(v => { tr.insertCell().textContent = v; });
+          tr.insertCell().append(btn('Copy message', 'grey', () => copyText(noticeText(r, a))));
+        });
+        $('detail').style.display = 'block';
+        $('detail').scrollIntoView({ behavior: 'smooth' });
+      } catch (e) { show(e.message, false); }
+    }
+
+    async function closeRecall(r) {
+      if (!confirm('Close the recall for batch ' + r.batch_no + '? The batch can be sold again.')) return;
+      try {
+        show((await api('/api/recalls/' + r.recall_id + '/close', { method: 'PUT' })).message, true);
+        load();
+        if ($('detail').style.display === 'block') openDetail(r.recall_id);
+      } catch (e) { show(e.message, false); }
+    }
+
+    $('form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      try {
+        const r = await api('/api/recalls', { method: 'POST',
+          body: JSON.stringify({ batch_id: $('batch_id').value, reason: $('reason').value }) });
+        show(r.message, true); $('form').reset(); load(); openDetail(r.recall_id);
+      } catch (err) { show(err.message, false); }
+    });
+    $('statusFilter').addEventListener('change', load);
+
+    async function init() {
+      if (isOwner) {
+        $('formBox').style.display = 'block';
+        const sel = $('batch_id');
+        sel.add(new Option('Choose batch', ''));
+        (await api('/api/batches')).forEach(b => sel.add(new Option(
+          b.product_name + ' | Batch ' + b.batch_no + ' | exp ' + b.expiry_date + ' | ' + b.quantity + ' ' + b.unit, b.batch_id)));
+      }
+      load();
+      const id = new URLSearchParams(location.search).get('id');
+      if (id) openDetail(id);
+    }
+    init().catch(e => show(e.message, false));
+  </script>
+</body>
+</html>

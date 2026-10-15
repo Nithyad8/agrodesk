@@ -5,87 +5,210 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>AgroDesk - Dashboard</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 0; background: #f1f5ee; }
-    header { background: #2e6b34; color: #fff; padding: 14px 24px; display: flex;
-             justify-content: space-between; align-items: center; }
-    header button { background: #fff; color: #2e6b34; border: 0; padding: 8px 14px;
-                    border-radius: 6px; cursor: pointer; }
-    main { padding: 24px; }
+    * { box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; margin: 0; background: #f1f5ee; color: #222; }
+    .sidebar { position: fixed; top: 0; left: 0; bottom: 0; width: 240px; background: #1f4d25; color: #fff;
+               overflow-y: auto; z-index: 20; transition: transform .2s; }
+    .brand { padding: 20px; font-size: 20px; font-weight: bold; border-bottom: 1px solid rgba(255,255,255,.15); }
+    .brand small { display: block; font-size: 11px; font-weight: normal; opacity: .75; margin-top: 2px; }
+    .group { padding: 14px 20px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; opacity: .65; }
+    .sidebar a { display: flex; align-items: center; gap: 10px; padding: 10px 20px; color: #fff;
+                 text-decoration: none; font-size: 14px; border-left: 4px solid transparent; }
+    .sidebar a:hover { background: rgba(255,255,255,.1); }
+    .sidebar a.active { background: rgba(255,255,255,.16); border-left-color: #9be3a7; font-weight: bold; }
+    .sidebar .count { margin-left: auto; background: #d9363e; color: #fff; border-radius: 10px;
+                      padding: 1px 8px; font-size: 12px; font-weight: bold; }
+    .content { margin-left: 240px; min-height: 100vh; }
+    .topbar { background: #fff; padding: 14px 24px; display: flex; align-items: center; gap: 12px;
+              box-shadow: 0 1px 4px rgba(0,0,0,.08); position: sticky; top: 0; z-index: 10; }
+    .topbar h1 { font-size: 18px; margin: 0; flex: 1; }
     .badge { background: #e3f1e4; color: #2e6b34; padding: 3px 10px; border-radius: 12px; font-size: 13px; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px; margin-top: 20px; }
-    .tile { background: #fff; padding: 22px 16px; border-radius: 10px; text-align: center;
-            text-decoration: none; color: #222; box-shadow: 0 1px 6px rgba(0,0,0,.08); }
-    .tile:hover { box-shadow: 0 3px 12px rgba(0,0,0,.15); }
-    #err { color: #b00020; margin-top: 12px; }
+    .menuBtn { display: none; background: #2e6b34; color: #fff; border: 0; border-radius: 6px; padding: 8px 12px; font-size: 16px; cursor: pointer; }
+    #logout { background: #fff; color: #b00020; border: 1px solid #b00020; border-radius: 6px; padding: 7px 14px; cursor: pointer; }
+    #logout:hover { background: #b00020; color: #fff; }
+    main { padding: 24px; max-width: 1200px; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
+    .card { background: #fff; border-radius: 12px; padding: 18px; box-shadow: 0 1px 6px rgba(0,0,0,.08); border-top: 4px solid #2e6b34; }
+    .card .label { font-size: 13px; color: #666; }
+    .card .value { font-size: 28px; font-weight: bold; margin-top: 6px; }
+    .card.red { border-top-color: #b00020; } .card.red .value { color: #b00020; }
+    .card.orange { border-top-color: #e0731a; }
+    .panel { background: #fff; border-radius: 12px; padding: 18px; box-shadow: 0 1px 6px rgba(0,0,0,.08); margin-bottom: 24px; }
+    .panel h2 { font-size: 16px; margin: 0 0 12px; display: flex; align-items: center; }
+    .panel h2 a { margin-left: auto; font-size: 13px; font-weight: normal; color: #2e6b34; text-decoration: none; }
+    .alertRow { display: flex; gap: 10px; align-items: flex-start; padding: 10px; border-radius: 8px;
+                border-left: 5px solid #888; background: #fafafa; margin-bottom: 8px; }
+    .alertRow.critical { border-left-color: #b00020; } .alertRow.high { border-left-color: #e0731a; }
+    .alertRow.medium { border-left-color: #e0b100; } .alertRow.low { border-left-color: #2e9d57; }
+    .alertRow .t { font-weight: bold; font-size: 14px; }
+    .alertRow .m { font-size: 13px; color: #555; margin-top: 2px; }
+    .alertRow a { margin-left: auto; font-size: 13px; color: #2e6b34; white-space: nowrap; }
+    .empty { color: #2e6b34; font-weight: bold; padding: 8px 0; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 14px; }
+    .tile { background: #fff; border-radius: 12px; padding: 20px 14px; text-align: center; text-decoration: none; color: #222;
+            box-shadow: 0 1px 6px rgba(0,0,0,.08); transition: transform .1s, box-shadow .1s; }
+    .tile:hover { transform: translateY(-2px); box-shadow: 0 4px 14px rgba(0,0,0,.14); }
+    .tile .ic { font-size: 28px; display: block; margin-bottom: 8px; }
+    #err { color: #b00020; margin-bottom: 12px; }
+    @media (max-width: 800px) {
+      .sidebar { transform: translateX(-100%); }
+      .sidebar.open { transform: translateX(0); }
+      .content { margin-left: 0; }
+      .menuBtn { display: inline-block; }
+      main { padding: 16px; }
+    }
   </style>
 </head>
 <body>
-  <header>
-    <strong>AgroDesk</strong>
-    <div><button id="logout">Log out</button></div>
-  </header>
-  <main>
-    <h2>Welcome, <span id="name"></span> <span class="badge" id="role"></span></h2>
-    <div id="err"></div>
-    <div class="grid" id="menu"></div>
-  </main>
+  <nav class="sidebar" id="sidebar">
+    <div class="brand">AgroDesk<small>Inventory, Billing and Licenses</small></div>
+    <div id="nav"></div>
+  </nav>
+
+  <div class="content">
+    <div class="topbar">
+      <button class="menuBtn" id="menuBtn" aria-label="Open menu">&#9776;</button>
+      <h1>Welcome, <span id="name"></span></h1>
+      <span class="badge" id="role"></span>
+      <button id="logout">Log out</button>
+    </div>
+
+    <main>
+      <div id="err"></div>
+
+      <div class="cards">
+        <div class="card orange"><div class="label">Need attention</div><div class="value" id="cTotal">-</div></div>
+        <div class="card red"><div class="label">Critical alerts</div><div class="value" id="cCritical">-</div></div>
+        <div class="card"><div class="label">Today's sales</div><div class="value" id="cSales">-</div></div>
+        <div class="card"><div class="label">Bills today</div><div class="value" id="cBills">-</div></div>
+      </div>
+
+      <div class="panel">
+        <h2>Latest alerts <a href="/alerts.html">View all</a></h2>
+        <div id="alerts"><div class="empty" style="color:#666">Loading...</div></div>
+      </div>
+
+      <h2 style="font-size:16px">Quick access</h2>
+      <div class="grid" id="menu"></div>
+    </main>
+  </div>
+
   <script>
-    const menus = {
-      owner: ['Users', 'Products', 'Batches and Stock', 'Sales and Billing', 'Sales History', 'Farmers',
-              'Suppliers', 'Licenses', 'Alerts', 'Reports'],
-      staff: ['Products', 'Batches and Stock', 'Sales and Billing', 'Sales History', 'Farmers', 'Suppliers', 'Alerts'],
-      inspector: ['Products', 'Batches and Stock', 'Sales History', 'Licenses', 'Alerts', 'Reports']
+    const MODULES = {
+      'Sales and Billing': { href: '/billing.html',   icon: '\uD83E\uDDFE', group: 'Sales' },
+      'Sales History':     { href: '/sales.html',     icon: '\uD83D\uDCC8', group: 'Sales' },
+      'Farmers':           { href: '/farmers.html',   icon: '\uD83E\uDDD1\u200D\uD83C\uDF3E', group: 'Sales' },
+      'Products':          { href: '/products.html',  icon: '\uD83C\uDF31', group: 'Inventory' },
+      'Batches and Stock': { href: '/batches.html',   icon: '\uD83D\uDCE6', group: 'Inventory' },
+      'Suppliers':         { href: '/suppliers.html', icon: '\uD83D\uDE9A', group: 'Inventory' },
+      'Batch Recall':      { href: '/recalls.html',   icon: '\u26A0\uFE0F', group: 'Inventory' },
+      'Licenses':          { href: '/licenses.html',  icon: '\uD83D\uDCDC', group: 'Compliance' },
+      'Alerts':            { href: '/alerts.html',    icon: '\uD83D\uDD14', group: 'Compliance' },
+      'Reports':           { href: '/reports.html',   icon: '\uD83D\uDCCA', group: 'Insights' },
+      'Users':             { href: '/users.html',     icon: '\uD83D\uDC65', group: 'Admin' }
     };
-    const links = {
-      'Products': '/products.html',
-      'Suppliers': '/suppliers.html',
-      'Batches and Stock': '/batches.html',
-      'Farmers': '/farmers.html',
-      'Sales and Billing': '/billing.html',
-      'Sales History': '/sales.html',
-      'Licenses': '/licenses.html',
-      'Alerts': '/alerts.html'
+    const GROUPS = ['Sales', 'Inventory', 'Compliance', 'Insights', 'Admin'];
+    const menus = {
+      owner: ['Sales and Billing', 'Sales History', 'Farmers', 'Products', 'Batches and Stock', 'Suppliers',
+              'Batch Recall', 'Licenses', 'Alerts', 'Reports', 'Users'],
+      staff: ['Sales and Billing', 'Sales History', 'Farmers', 'Products', 'Batches and Stock', 'Suppliers',
+              'Batch Recall', 'Alerts', 'Reports'],
+      inspector: ['Sales History', 'Products', 'Batches and Stock', 'Batch Recall', 'Licenses', 'Alerts', 'Reports']
     };
 
     const token = localStorage.getItem('token');
     if (!token) location.href = '/login.html';
+    const $ = (id) => document.getElementById(id);
 
-    function addAlertCount() {
-      fetch('/api/alerts', { headers: { Authorization: 'Bearer ' + token } })
-        .then(r => r.ok ? r.json() : null)
-        .then(d => {
-          if (!d || !d.summary || !d.summary.total) return;
-          const tile = [...document.querySelectorAll('.tile')].find(t => t.firstChild && t.firstChild.textContent === 'Alerts');
-          if (!tile) return;
-          const s = document.createElement('div');
-          s.textContent = d.summary.total + ' need attention';
-          s.style.cssText = 'margin-top:8px;font-size:12px;color:#b00020;font-weight:bold';
-          tile.append(s);
-        })
-        .catch(() => {});
+    function el(tag, cls, text) {
+      const e = document.createElement(tag);
+      if (cls) e.className = cls;
+      if (text !== undefined) e.textContent = text;
+      return e;
     }
 
-    fetch('/api/auth/me', { headers: { Authorization: 'Bearer ' + token } })
-      .then(r => { if (!r.ok) throw new Error('Session expired'); return r.json(); })
-      .then(user => {
-        document.getElementById('name').textContent = user.name;
-        document.getElementById('role').textContent = user.role;
-        const menu = document.getElementById('menu');
-        (menus[user.role] || []).forEach(item => {
-          const a = document.createElement('a');
-          a.className = 'tile';
-          a.href = links[item] || '#';
-          a.append(document.createTextNode(item));
-          menu.appendChild(a);
+    async function get(url) {
+      const res = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
+      if (res.status === 401) { localStorage.clear(); location.href = '/login.html'; throw new Error('login'); }
+      if (!res.ok) throw new Error('failed');
+      return res.json();
+    }
+
+    function buildMenus(role) {
+      const allowed = menus[role] || [];
+      const nav = $('nav');
+      const home = el('a', 'active'); home.href = '/dashboard.html';
+      home.append(el('span', '', '\uD83C\uDFE0'), el('span', '', 'Dashboard'));
+      nav.append(home);
+
+      GROUPS.forEach(g => {
+        const items = allowed.filter(n => MODULES[n].group === g);
+        if (!items.length) return;
+        nav.append(el('div', 'group', g));
+        items.forEach(n => {
+          const a = el('a'); a.href = MODULES[n].href; a.dataset.name = n;
+          a.append(el('span', '', MODULES[n].icon), el('span', '', n));
+          nav.append(a);
         });
-        addAlertCount();
+      });
+
+      const grid = $('menu');
+      allowed.forEach(n => {
+        const a = el('a', 'tile'); a.href = MODULES[n].href;
+        a.append(el('span', 'ic', MODULES[n].icon), document.createTextNode(n));
+        grid.append(a);
+      });
+    }
+
+    async function loadAlerts() {
+      try {
+        const d = await get('/api/alerts');
+        $('cTotal').textContent = d.summary.total;
+        $('cCritical').textContent = d.summary.critical;
+        const link = document.querySelector('#nav a[data-name="Alerts"]');
+        if (link && d.summary.total) link.append(el('span', 'count', String(d.summary.total)));
+
+        const box = $('alerts'); box.innerHTML = '';
+        if (!d.alerts.length) { box.append(el('div', 'empty', 'All clear. Nothing needs attention.')); return; }
+        d.alerts.slice(0, 5).forEach(a => {
+          const row = el('div', 'alertRow ' + a.level);
+          const text = el('div');
+          text.append(el('div', 't', a.title), el('div', 'm', a.message));
+          const go = el('a', '', 'View'); go.href = a.link;
+          row.append(text, go); box.append(row);
+        });
+      } catch (e) {
+        if (e.message === 'login') return;
+        $('cTotal').textContent = '-'; $('cCritical').textContent = '-';
+        $('alerts').textContent = 'Alerts could not be loaded.';
+      }
+    }
+
+    async function loadSales() {
+      try {
+        const today = new Date().toLocaleDateString('en-CA');
+        const list = await get('/api/sales?from=' + today + '&to=' + today);
+        const total = list.reduce((s, b) => s + Number(b.total_amount), 0);
+        $('cBills').textContent = list.length;
+        $('cSales').textContent = '\u20B9' + total.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      } catch (e) {
+        if (e.message === 'login') return;
+        $('cBills').textContent = '-'; $('cSales').textContent = '-';
+      }
+    }
+
+    get('/api/auth/me')
+      .then(user => {
+        $('name').textContent = user.name;
+        $('role').textContent = user.role;
+        buildMenus(user.role);
+        loadAlerts();
+        loadSales();
       })
       .catch(() => { localStorage.clear(); location.href = '/login.html'; });
 
-    document.getElementById('logout').addEventListener('click', () => {
-      localStorage.clear();
-      location.href = '/login.html';
-    });
+    $('logout').addEventListener('click', () => { localStorage.clear(); location.href = '/login.html'; });
+    $('menuBtn').addEventListener('click', () => $('sidebar').classList.toggle('open'));
   </script>
 </body>
 </html>
